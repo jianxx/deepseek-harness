@@ -251,6 +251,7 @@
     { "path": "./packages/test-support/acp-snapshot" },
     { "path": "./packages/test-support/loader-smoke" },
     { "path": "./packages/test-support/llm-mock-server" },
+    { "path": "./packages/subagent/coordinator" },
     { "path": "./packages/subagent/subagent" },
     { "path": "./packages/subagent/tool-subagent" },
     { "path": "./packages/subagent/tool-subagent-control" },
