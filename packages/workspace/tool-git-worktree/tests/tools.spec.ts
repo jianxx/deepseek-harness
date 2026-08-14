@@ -34,7 +34,8 @@ class ScriptedShell extends ShellExecutor {
       workdir: request.workdir ?? process.cwd(),
       timeoutMs: request.timeoutMs ?? 1000,
       stdoutMaxBytes: request.stdoutMaxBytes ?? 64_000,
-      ...request.signal ? { signal: request.signal } : {},
+      sandboxPolicy: undefined,
+      ...(request.signal ? { signal: request.signal } : {}),
     }
   }
 
