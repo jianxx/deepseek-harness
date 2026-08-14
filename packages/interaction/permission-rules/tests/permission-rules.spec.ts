@@ -7,6 +7,7 @@ import ToolRuntime, { defineContentToolFixture, type ToolExecutionInput, type To
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import { SettingsProvider, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import PermissionRules, { PERMISSION_SETTINGS_NAMESPACE, foldPermissionMode, type Config } from '@deepseek-ai/dsh-permission-rules'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 
 const testToolSignal = new AbortController().signal
 
@@ -62,13 +63,13 @@ async function mount(config: Config = {}): Promise<Context> {
   return ctx
 }
 
-function exec(name: string, args: unknown, agent?: { id: string; session: Session }): ToolExecutionInput {
+function exec(name: string, args: unknown, agent?: Agent): ToolExecutionInput {
   return {
     signal: testToolSignal,
     callId: CallId('c1'),
     name,
     arguments: args,
-    ...agent ? { agent: agent as never } : {},
+    ...(agent ? { agent } : {}),
   }
 }
 
@@ -77,10 +78,10 @@ function text(result: ToolExecutionResult): string {
   return first?.type === 'text' ? first.text : JSON.stringify(result.content)
 }
 
-function openTurnAgent(id: string): { id: string; session: Session } {
+function openTurnAgent(id: string): Agent {
   const session = Session.create(SessionId(id))
   session.append('turn/start', { turn: 1 })
-  return { id, session }
+  return { id, session } as unknown as Agent
 }
 
 describe('plugin pre-execute decisions', () => {
