@@ -35,10 +35,10 @@ async function setup(script: ConstructorParameters<typeof MockAdapter>[0]) {
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   // A small deployment tool surface: two write tools and two read-only tools,
   // so the coordinator's default mask can be observed removing the writers.
-  ctx.tools.register(defineTool({ name: 'write', description: 'write', parameters: {}, output: { schema: { type: 'null' }, render: () => [] } }))
-  ctx.tools.register(defineTool({ name: 'edit', description: 'edit', parameters: {}, output: { schema: { type: 'null' }, render: () => [] } }))
-  ctx.tools.register(defineTool({ name: 'read', description: 'read', parameters: {}, output: { schema: { type: 'null' }, render: () => [] } }))
-  ctx.tools.register(defineTool({ name: 'search', description: 'search', parameters: {}, output: { schema: { type: 'null' }, render: () => [] } }))
+  ctx.tools.register(defineTool({ name: 'write', description: 'write', parameters: {}, output: { schema: { type: 'null' }, render: () => [] }, async execute() { return null } }))
+  ctx.tools.register(defineTool({ name: 'edit', description: 'edit', parameters: {}, output: { schema: { type: 'null' }, render: () => [] }, async execute() { return null } }))
+  ctx.tools.register(defineTool({ name: 'read', description: 'read', parameters: {}, output: { schema: { type: 'null' }, render: () => [] }, async execute() { return null } }))
+  ctx.tools.register(defineTool({ name: 'search', description: 'search', parameters: {}, output: { schema: { type: 'null' }, render: () => [] }, async execute() { return null } }))
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
   const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
   parkParent(ctx, parent)
@@ -177,7 +177,7 @@ describe('dsh-coordinator named worker routing', () => {
 
     const spawned = await callTool(ctx, 'spawn_worker', { name: 'alpha', prompt: 'do task' }, parent)
     expect(spawned.isError).toBe(false)
-    const workerId = (spawned.content as { text?: string }[]).find(b => b.type === 'text')?.text
+    const workerId = (spawned.content as Array<{ type: string; text?: string }>).find(b => b.type === 'text')?.text
     expect(workerId).toContain('alpha started as')
     const sent = await callTool(ctx, 'send_to_worker', {
       worker: 'alpha',
@@ -242,8 +242,8 @@ describe('dsh-coordinator completion notification (reused subagent-settled proto
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
-    ctx.tools.register(defineTool({ name: 'write', description: 'write', parameters: {}, output: { schema: { type: 'null' }, render: () => [] } }))
-    ctx.tools.register(defineTool({ name: 'edit', description: 'edit', parameters: {}, output: { schema: { type: 'null' }, render: () => [] } }))
+    ctx.tools.register(defineTool({ name: 'write', description: 'write', parameters: {}, output: { schema: { type: 'null' }, render: () => [] }, async execute() { return null } }))
+    ctx.tools.register(defineTool({ name: 'edit', description: 'edit', parameters: {}, output: { schema: { type: 'null' }, render: () => [] }, async execute() { return null } }))
     ctx.llm.registerAdapter(['mock'], new MockAdapter([textResponse('child answer'), textResponse('parent ack')]))
     const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
     coordinator.installCoordinatorMode(parent, ctx, { enabled: true })
