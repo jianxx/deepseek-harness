@@ -22,7 +22,13 @@
       "path": "../../core/tools"
     },
     {
+      "path": "../../credentials/credentials"
+    },
+    {
       "path": "../../subprocess/subprocess"
+    },
+    {
+      "path": "../../skill/skill"
     },
     {
       "path": "../../runtime-diagnostics/invariants"
