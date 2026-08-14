@@ -50,3 +50,13 @@ Projects session activity into outbound telemetry and delegates delivery to a co
 | [`session-telemetry-otel/`](session-telemetry-otel/README.md) | Delivers telemetry through OpenTelemetry logs in `FULL`, `FEEDBACK_ONLY`, or `DISABLED` mode. |
 
 The subsystem references: [persistence.md](../../docs/subsystems/persistence.md), [session-projection.md](../../docs/subsystems/session-projection.md), [session-title.md](../../docs/subsystems/session-title.md), and [session-telemetry.md](../../docs/subsystems/session-telemetry.md). Only one title provider may register at a time; the demo spine mounts the fallback service and leaves both model providers out of default composition.
+
+## Commands
+
+Human-facing slash commands over the durable session log, registered on [`ctx.commands`](../interaction/commands/README.md) and executed without a model turn.
+
+| Package | Role |
+|---|---|
+| [`command-cost/`](command-cost/README.md) | `/cost`: per-model token usage and estimated USD cost from the deployment price table. |
+| [`command-stats/`](command-stats/README.md) | `/stats`: turn/step counts, tool-call distribution, and token usage totals. |
+| [`command-export/`](command-export/README.md) | `/export`: write the session transcript to a markdown or JSON file through `ctx.fs`. |

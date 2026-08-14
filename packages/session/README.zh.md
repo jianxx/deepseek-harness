@@ -50,3 +50,13 @@
 | [`session-telemetry-otel/`](session-telemetry-otel/README.md) | 通过 OpenTelemetry 日志以 `FULL`、`FEEDBACK_ONLY` 或 `DISABLED` 模式投递遥测。 |
 
 子系统参考：[persistence.md](../../docs/subsystems/persistence.md)、[session-projection.md](../../docs/subsystems/session-projection.md)、[session-title.md](../../docs/subsystems/session-title.md) 与 [session-telemetry.md](../../docs/subsystems/session-telemetry.md)。同一时间只允许一个标题提供方注册；demo 主干挂载回退服务，两个模型提供方都留在默认组合之外。
+
+## 命令
+
+基于持久会话日志的面向用户斜杠命令，在 [`ctx.commands`](../interaction/commands/README.md) 上注册，无需模型轮次即可执行。
+
+| 包 | 角色 |
+|---|---|
+| [`command-cost/`](command-cost/README.md) | `/cost`：按模型的 token 用量与按部署单价表估算的 USD 成本。 |
+| [`command-stats/`](command-stats/README.md) | `/stats`：turn／step 计数、工具调用分布与 token 用量汇总。 |
+| [`command-export/`](command-export/README.md) | `/export`：通过 `ctx.fs` 将会话 transcript 写入 markdown 或 JSON 文件。 |

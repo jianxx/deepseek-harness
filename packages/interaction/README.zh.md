@@ -7,6 +7,8 @@
 | 包 | 职责 | ctx 键 |
 |---|---|---|
 | [`commands/`](commands/README.md) | 为交互式适配器注册并分派用户命令。 | `ctx.commands` |
+| [`command-status/`](command-status/README.md) | `/status`：会话状态摘要（模型、preset、会话、目录）。 | （注册到 `ctx.commands`） |
+| [`command-doctor/`](command-doctor/README.md) | `/doctor`：对版本、settings 与各接缝做环境自检。 | （注册到 `ctx.commands`） |
 | [`user-approval/`](user-approval/README.md) | 协调一次性审批决策。 | `ctx.approval` |
 | [`permission/`](permission-presets/README.md) | 呈现并持久化面向用户的权限预设。 | `ctx.permissionPresets` |
 | [`user-questions/`](user-questions/README.md) | 定义与提供方无关的用户问答 seam。 | `ctx.userQuestions` |
