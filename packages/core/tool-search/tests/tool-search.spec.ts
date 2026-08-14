@@ -64,11 +64,17 @@ async function mintAgent(host: Context, id: string): Promise<{ agent: Agent; sco
 
 /** Observable model-facing tool names for a scope (undefined = global). */
 async function visibleNames(host: Context, scope?: Agent | Scope) {
-  const assembly = await host.systemPrompt.assemble({ scope })
+  const context: { scope?: Agent | Scope } = scope === undefined ? {} : { scope }
+  const assembly = await host.systemPrompt.assemble(context)
   return assembly.tools.map(tool => tool.name)
 }
 
 /** Execute the ToolSearch tool on the host as the model would. */
+interface ToolSearchValue {
+  query: string
+  results: Array<{ name: string; description: string; status: string; reason?: string }>
+}
+
 async function runToolSearch(host: Context, query: string, args: { max_results?: number; agent?: Agent } = {}) {
   const result = await host.tools.execute({
     signal,
@@ -78,7 +84,7 @@ async function runToolSearch(host: Context, query: string, args: { max_results?:
     ...args.agent !== undefined ? { agent: args.agent } : {},
   })
   expect(result.isError).toBe(false)
-  return result
+  return result as typeof result & { value: ToolSearchValue }
 }
 
 describe('the deferred tool registry', () => {
@@ -144,7 +150,7 @@ describe('loading a deferred tool', () => {
     expect(await visibleNames(ctx)).toEqual([TOOL_SEARCH_NAME])
 
     const result = await runToolSearch(ctx, 'data')
-    expect(result.value.results[0].status).toBe('loaded')
+    expect(result.value.results[0]?.status).toBe('loaded')
 
     expect(await visibleNames(ctx)).toEqual([TOOL_SEARCH_NAME, 'big_tool'])
   })
@@ -154,10 +160,11 @@ describe('loading a deferred tool', () => {
     deferred(ctx, 'bash_tool', 'Run shell commands.', 'shell')
 
     const result = await runToolSearch(ctx, 'shell')
-    const text = result.content[0]
-    expect(text.type).toBe('text')
-    expect(text.text).toContain('bash_tool')
-    expect(text.text).toContain('Run shell commands.')
+    const block = result.content[0]
+    expect(block?.type).toBe('text')
+    const text = block?.type === 'text' ? block.text : ''
+    expect(text).toContain('bash_tool')
+    expect(text).toContain('Run shell commands.')
   })
 
   it('is idempotent: loading an already-loaded tool is a no-op', async () => {
@@ -213,8 +220,8 @@ describe('restriction priority', () => {
 
     // The agent's own ToolSearch keeps it unloaded and explains why.
     const result = await runToolSearch(ctx, 'data', { agent })
-    expect(result.value.results[0].status).toBe('denied')
-    expect(result.value.results[0].reason).toContain('restricted')
+    expect(result.value.results[0]?.status).toBe('denied')
+    expect(result.value.results[0]?.reason).toContain('restricted')
     expect(ctx.toolSearch.activate('big_tool', agent).status).toBe('denied')
 
     // It stays unloaded for that agent, and is never in its schema.
