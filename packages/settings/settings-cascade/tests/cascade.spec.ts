@@ -47,7 +47,9 @@ async function writeSettings(dir: string, name: string, doc: unknown): Promise<s
 
 /** Resolved `ui-theme` section given a plugin default and a registered default. */
 function themeOf(ctx: Context, base?: Partial<ThemeConfig>): ThemeConfig {
-  return ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema, { base })!.get() as ThemeConfig
+  const options: { base?: Partial<ThemeConfig> } = {}
+  if (base !== undefined) options.base = base
+  return ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema, options)!.get() as ThemeConfig
 }
 
 describe('five-level precedence', () => {

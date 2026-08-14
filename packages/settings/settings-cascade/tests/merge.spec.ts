@@ -44,7 +44,7 @@ describe('mergeValue', () => {
 
 describe('permission-array denial semantics', () => {
   it('unions allow and ask arrays across layers', () => {
-    const merged = mergeValue(
+    const merged = mergeValue<{ permissions: Record<string, unknown> }>(
       { permissions: { allow: ['a', 'b'] } },
       { permissions: { allow: ['b', 'c'] } },
     )
@@ -52,7 +52,7 @@ describe('permission-array denial semantics', () => {
   })
 
   it('unions deny arrays across layers', () => {
-    const merged = mergeValue(
+    const merged = mergeValue<{ permissions: Record<string, unknown> }>(
       { permissions: { deny: ['a'] } },
       { permissions: { deny: ['b', 'a'] } },
     )
@@ -60,7 +60,7 @@ describe('permission-array denial semantics', () => {
   })
 
   it('removes a denied rule from allow across layers (deny precedence)', () => {
-    const merged = mergeValue(
+    const merged = mergeValue<{ permissions: Record<string, unknown> }>(
       { permissions: { allow: ['Bash(a)', 'Bash(b)'], deny: [] } },
       { permissions: { allow: ['Bash(c)'], deny: ['Bash(a)'] } },
     )
@@ -71,7 +71,7 @@ describe('permission-array denial semantics', () => {
   })
 
   it('drops a lower allow rule when a higher deny names it', () => {
-    const merged = mergeValue(
+    const merged = mergeValue<{ permissions: Record<string, unknown> }>(
       { permissions: { allow: ['WebFetch'] } },
       { permissions: { deny: ['WebFetch'] } },
     )
@@ -81,7 +81,7 @@ describe('permission-array denial semantics', () => {
   })
 
   it('merges non-permission permission keys with ordinary rules (arrays override)', () => {
-    const merged = mergeValue(
+    const merged = mergeValue<{ permissions: Record<string, unknown> }>(
       { permissions: { additionalDirectories: ['/a'] } },
       { permissions: { additionalDirectories: ['/b'] } },
     )

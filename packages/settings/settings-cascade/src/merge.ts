@@ -109,19 +109,19 @@ export function unionDenyPrecedence(
  * @param higher - the higher-priority value; `undefined` keeps the lower value.
  * @returns the merged value.
  */
-export function mergeValue(lower: unknown, higher: unknown): unknown {
+export function mergeValue<T = unknown>(lower: T, higher: unknown): T {
   if (higher === undefined) return lower
   if (isPlainObject(lower) && isPlainObject(higher)) {
     if (isPermissionObject(lower) || isPermissionObject(higher)) {
-      return mergePermissionObject(lower, higher)
+      return mergePermissionObject(lower, higher) as T
     }
-    const merged: Record<string, unknown> = { ...lower }
+    const merged: Record<string, unknown> = { ...(lower as Record<string, unknown>) }
     for (const [key, value] of Object.entries(higher)) {
       merged[key] = key in merged ? mergeValue(merged[key], value) : value
     }
-    return merged
+    return merged as T
   }
-  return higher
+  return higher as T
 }
 
 /**

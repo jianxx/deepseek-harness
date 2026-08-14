@@ -22,8 +22,8 @@ export const DANGEROUS_ENV_VARS: readonly string[] = [
 
 const DANGEROUS = new Set<string>(DANGEROUS_ENV_VARS)
 
-/** One parsed `env` entry: variable name to string-valued assignment. */
-export type EnvSettings = Record<string, string>
+/** One parsed `env` entry: variable name to a value coerced to string on apply. */
+export type EnvSettings = Record<string, unknown>
 
 /**
  * Coerce one configured `env` value into the string a process environment
