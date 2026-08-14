@@ -191,9 +191,9 @@ describe('Microcompactor window + freeze', () => {
     expect(records.map(r => r.callId)).toEqual([CallId('call-1'), CallId('call-2')])
     // Each record's replacementSeq is a current-surface node whose content is the placeholder.
     for (const record of records) {
-      const replacement = s.events[record.replacementSeq]
+      const replacement = s.events[record.replacementSeq] as SessionEvent<'tool/result'> | undefined
       expect(replacement?.type).toBe('tool/result')
-      const block = (replacement!.data as SessionEvent<'tool/result'>['data']).message.content[0]
+      const block = replacement!.data.message.content[0]
       expect(block?.type === 'tool-result' && block.content[0]?.type === 'text'
         && block.content[0].text.startsWith(MICROCOMPACT_MARKER)).toBe(true)
       // Decision is reconstructable purely from log + code.
