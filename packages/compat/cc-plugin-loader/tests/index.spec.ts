@@ -26,12 +26,12 @@ describe('mountCcPlugin', () => {
       const report = mount.report
       expect(report.name).toBe('p')
       const byKind = Object.fromEntries(report.components.map(c => [c.kind, c]))
-      expect(byKind['commands'].loaded).toBe(1)
-      expect(byKind['settings'].loaded).toBe(1)
-      expect(byKind['skills'].skipped).toBe(1)
-      expect(byKind['agents'].skipped).toBe(1)
-      expect(byKind['hooks'].skipped).toBe(1)
-      expect(byKind['mcpServers'].skipped).toBe(1)
+      expect(byKind['commands']?.loaded).toBe(1)
+      expect(byKind['settings']?.loaded).toBe(1)
+      expect(byKind['skills']?.skipped).toBe(1)
+      expect(byKind['agents']?.skipped).toBe(1)
+      expect(byKind['hooks']?.skipped).toBe(1)
+      expect(byKind['mcpServers']?.skipped).toBe(1)
       mount.dispose()
     } finally {
       await dispose()
@@ -46,9 +46,9 @@ describe('mountCcPlugin', () => {
       const mount = await mountCcPlugin(ctx, { root, seams: {} })
       const report = mount.report
       const byKind = Object.fromEntries(report.components.map(c => [c.kind, c]))
-      expect(byKind['mcpServers'].skipped).toBe(1)
-      expect(byKind['mcpServers'].reasons[0]).toMatch(/not mounted/)
-      expect(byKind['settings'].skipped).toBe(1)
+      expect(byKind['mcpServers']?.skipped).toBe(1)
+      expect(byKind['mcpServers']?.reasons[0]).toMatch(/not mounted/)
+      expect(byKind['settings']?.skipped).toBe(1)
       mount.dispose()
     } finally {
       await dispose()

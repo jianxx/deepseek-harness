@@ -37,7 +37,7 @@ describe('skillToolRestriction', () => {
 
 describe('resolveSkillExecution / fork downgrade', () => {
   it('routes an inline skill inline even when subagents exist', () => {
-    expect(resolveSkillExecution(metadata({ executionContext: undefined }), true)).toBe('inline')
+    expect(resolveSkillExecution(metadata({}), true)).toBe('inline')
   })
 
   it('routes a fork skill to fork when the subagent seam exists', () => {
