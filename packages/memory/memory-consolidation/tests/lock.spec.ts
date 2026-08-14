@@ -106,7 +106,8 @@ describe('rollbackLock', () => {
   it('restores the prior epoch on rollback after acquisition', async () => {
     const fs = await makeFs()
     const prior = await tryAcquireLock(fs, dir, 1, now)
-    await rollbackLock(fs, dir, prior)
+    expect(prior).not.toBeNull()
+    await rollbackLock(fs, dir, prior as number)
     expect(await readLastConsolidatedAt(fs, dir)).toBe(prior)
   })
 
@@ -114,7 +115,7 @@ describe('rollbackLock', () => {
     const fs = await makeFs()
     const prior = await tryAcquireLock(fs, dir, 1, now)
     expect(prior).toBe(0)
-    await rollbackLock(fs, dir, prior)
+    await rollbackLock(fs, dir, prior as number)
     expect(await readLastConsolidatedAt(fs, dir)).toBe(0)
   })
 })

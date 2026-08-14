@@ -54,7 +54,7 @@ export class FakeMemoryFs extends FileSystem {
         name,
         type: 'file',
         target: { targetKey: FsTargetKey(key), displayPath: key },
-        size: this.backing.get(key)?.length,
+        size: this.backing.get(key)?.length ?? 0,
         version: FsVersion('v1'),
       })
     }
