@@ -1,6 +1,8 @@
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -37,7 +39,37 @@ function hooks(d: string, h: unknown): string {
   writeFileSync(join(d, 'hooks.json'), JSON.stringify({ hooks: h })); return join(d, 'hooks.json')
 }
 
-type HarnessOpts = { pluginRoot?: string; projectDir?: string; stderrSummaryMaxChars?: number; sessionRoot?: string }
+/** A local mock HTTP server for exercising `http` hooks; capture each request. */
+function startMockHttpServer(handler: (req: { url?: string; body: string }) => { status: number; body: string }): Promise<{
+  port: number
+  close: () => void
+  requests: Array<{ method?: string; url?: string; body: string }>
+}> {
+  const requests: Array<{ method?: string; url?: string; body: string }> = []
+  const server = createServer((req, res) => {
+    let body = ''
+    req.on('data', (c) => { body += c })
+    req.on('end', () => {
+      requests.push({ method: req.method, url: req.url, body })
+      const { status, body: resp } = handler({ url: req.url, body })
+      res.statusCode = status
+      res.setHeader('Content-Type', 'application/json')
+      res.end(resp)
+    })
+  })
+  const close = (): void => server.close()
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ port: (server.address() as AddressInfo).port, close, requests }))
+  })
+}
+
+type HarnessOpts = {
+  pluginRoot?: string
+  projectDir?: string
+  stderrSummaryMaxChars?: number
+  sessionRoot?: string
+  allowedHttpHookUrls?: string[]
+}
 async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOpts = {}): Promise<Context> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
@@ -45,7 +77,13 @@ async function harness(configPath: string, adapter: MockAdapter, opts: HarnessOp
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
-  await ctx.plugin(HooksClaude, { configPath, ...opts })
+  await ctx.plugin(HooksClaude, {
+    configPath,
+    ...opts.pluginRoot !== undefined ? { pluginRoot: opts.pluginRoot } : {},
+    ...opts.projectDir !== undefined ? { projectDir: opts.projectDir } : {},
+    ...opts.stderrSummaryMaxChars !== undefined ? { stderrSummaryMaxChars: opts.stderrSummaryMaxChars } : {},
+    ...opts.allowedHttpHookUrls !== undefined ? { allowedHttpHookUrls: opts.allowedHttpHookUrls } : {},
+  })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
 }
@@ -741,20 +779,90 @@ export function defineCoverageCases(group: CoverageGroup): void {
     })
   })
 
-  if (group === 'edge-paths') describe('hooks-claude-code coverage — SessionStart timing is best-effort (no-wait)', () => {
-    it('does NOT crash or block when the prompt is sent immediately (context is best-effort, may miss the first request)', async () => {
-    // Session-start injection is detached, so an immediate prompt need not observe it. Assert only
-    // the guaranteed behavior—no crash and a completed turn—without pre-waiting away the race.
+  if (group === 'edge-paths') describe('hooks-claude-code coverage — non-command executor dispatch', () => {
+    it('runs an HTTP hook through the bridge (200 body deny blocks the tool)', async () => {
+      // A real local HTTP server answers the http hook; its 200 + permissionDecision deny
+      // body maps to a block, so the scripted tool is denied like a command-hook deny.
+      const http = await startMockHttpServer(() => ({ status: 200, body: JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'no' } }) }))
       const d = dir()
-      const s = sh(d, 'start.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"late ctx"}}\'\n')
-      const path = hooks(d, { SessionStart: [{ hooks: [{ type: 'command', command: s }] }] })
-      const adapter = new MockAdapter([textResponse('ok')])
+      const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'http', url: `http://127.0.0.1:${http.port}/h` }] }] })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
       const ctx = await harness(path, adapter)
+      let ran = false
+      ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'x' }] } }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      // Send immediately — do NOT wait for the session-start inject.
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
-      expect(adapter.requests).toHaveLength(1) // the turn ran regardless of hook timing
+      expect(ran).toBe(false) // the http hook denied the tool
+      expect(http.requests.length).toBe(1)
+      expect(http.requests[0]!.method).toBe('POST')
+      http.close()
+    }, 15_000)
+
+    it('surfaces a prompt hook as a warned no-op (parsed, not run)', async () => {
+      const d = dir()
+      const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'prompt', prompt: 'approve?' }] }] })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+      const ctx = await harness(path, adapter)
+      const warn = vi.fn(); ctx.logger.warn = warn as never
+      ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      // The prompt hook is a no-op, so the tool ran; a warning named it.
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('prompt hook is parsed but not yet run'))
+      const res = events(agent).find(e => e.type === 'hook/result')
+      expect(res?.type === 'hook/result' && res.data.decision).toBe('pass')
     })
+
+    it('surfaces an agent hook as a warned no-op (parsed, not run)', async () => {
+      const d = dir()
+      const path = hooks(d, { Stop: [{ hooks: [{ type: 'agent', prompt: 'verify' }] }] })
+      const adapter = new MockAdapter([textResponse('one')])
+      const ctx = await harness(path, adapter)
+      const warn = vi.fn(); ctx.logger.warn = warn as never
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('agent hook is parsed but not yet run'))
+      expect(adapter.requests).toHaveLength(1) // no-op, not blocked
+    })
+  })
+
+  if (group === 'edge-paths') describe('hooks-claude-code coverage — load-time skip warning loop', () => {
+    it('warns for a hook of an UNKNOWN executor type at load (the skipped loop)', async () => {
+      const d = dir()
+      const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'mcp_tool', name: 'x' }] }] })
+      const ctx = new Context()
+      await mountAgentLoopTestDependencies(ctx)
+      await ctx.plugin(AgentLoop, { agents: [] })
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+      const warn = vi.fn(); ctx.logger.warn = warn as never
+      HooksClaude.apply(ctx, { configPath: path }) // the skip warning fires during apply
+      ctx.llm.registerAdapter(['mock'], new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')]))
+      ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { return [{ type: 'text', text: 'ok' }] } }))
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('skipping unsupported "mcp_tool" hook on PreToolUse'))
+    })
+  })
+
+  if (group === 'edge-paths') describe('hooks-claude-code coverage — http allowlist policy arms', () => {
+    it('blocks an http hook URL against a NON-matching configured allowedHttpHookUrls pattern', async () => {
+      const d = dir()
+      const path = hooks(d, { PreToolUse: [{ hooks: [{ type: 'http', url: 'http://127.0.0.1:1/x' }] }] })
+      const adapter = new MockAdapter([toolCallResponse('c1', 'echo', {}), textResponse('done')])
+      const ctx = await harness(path, adapter, { allowedHttpHookUrls: ['http://127.0.0.1:9/*'] })
+      let ran = false
+      ctx.tools.register(defineContentToolFixture({ name: 'echo', description: 'e', parameters: {}, async execute() { ran = true; return [{ type: 'text', text: 'ok' }] } }))
+      const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+      expect(ran).toBe(true) // the blocked URL is a non-blocking error, tool proceeds
+      const res = events(agent).find(e => e.type === 'hook/result')
+      expect(res?.type === 'hook/result' && 'exitCode' in res.data).toBe(false) // infrastructure-style reject → no exit code
+    }, 15_000)
   })
 }

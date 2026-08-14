@@ -16,6 +16,8 @@ const config: Config = {
   projectDir: '/path/to/project',    // optional: replaces ${CLAUDE_PROJECT_DIR} AND sets the hook env var; defaults to the session cwd when omitted
   defaultTimeoutMs: 600_000,         // optional: per-hook timeout when a hook sets none (CC default)
   stderrSummaryMaxChars: 500,        // optional: char cap on the hook/result event's persisted stderr summary
+  allowedHttpHookUrls: ['https://hooks.example.com/*'], // optional: URL allowlist for http hooks (absent/empty = unrestricted)
+  httpAllowedEnvVars: ['MY_TOKEN'],  // optional: env names allowed to interpolate into http hook header values
 }
 ```
 
@@ -31,6 +33,14 @@ In a `cordis.yml`:
 The config is parsed **once** at load. `configPath` is **process-level**: a relative path resolves against the process's launch cwd at load time, so a single config applies to the whole process — there is no per-session (`session/new.cwd`) config discovery yet (`TODO(per-session-hook-config)`). A read/parse failure is contained — including an invalid regex matcher on an event that consumes matchers, reported with its pattern and event — and the bridge logs a warning and registers nothing rather than crashing boot (a typo'd path must not take the agent down). Only shell-form `type: 'command'` hooks run; an `http`/`mcp_tool`/`prompt`/`agent` hook is parsed-and-skipped with a warning. A hook with no per-hook `timeout` runs under the protocol's reference default (`DEFAULT_HOOK_TIMEOUT_MS` from `dsh-hook-protocol`, 10 minutes — the CC default).
 
 The hooks **themselves** run in the agent's session workspace: for the agent-scoped points the bridge passes the session's `cwd` (the `session/new.cwd`) as the hook process's working directory, so a hook's `pwd`/relative-path/marker operates in the user's project tree, not the server launch dir.
+
+## Executor kinds
+
+The config parser accepts all four CC executor kinds and the runner dispatches them by `type`:
+
+- **`command`** — the shell executor (through `ctx.shell`), unchanged from before.
+- **`http`** — POSTs the hook input JSON to `hook.url`, mapping the HTTP response onto the same exit-code contract as a command hook (a 200 body is parsed as structured stdout, so a 200-with-`permissionDecision:deny` body blocks). Header values interpolate `$VAR`/`${VAR}` names but only those listed in the hook's `allowedEnvVars` (intersected with the `httpAllowedEnvVars` config) — other references become empty strings. `allowedHttpHookUrls` restricts destinations (`*` wildcards; absent/empty = unrestricted).
+- **`prompt`** and **`agent`** — parsed and surfaced (a warned no-op for now); running a small-model `prompt` evaluation or a verification subagent is deferred work.
 
 ## Hook points → typed Decisions
 
@@ -94,4 +104,4 @@ A blocked prompt sends no request and invalidates nothing. Denial, feedback, and
 - **`SubagentStart` and `SubagentStop` are partial:** both report a constant `agent_type` of `general-purpose` and use the child session id where Claude Code reports the parent session. Start context is best-effort and can only reach a live in-process child, while stop is observe-only and cannot block the subagent or feed it context. Start omits `transcript_path`; stop also omits `agent_transcript_path`, `last_assistant_message`, `background_tasks`, and `session_crons` and always reports `stop_hook_active: false`.
 - **`Stop` is partial:** blocking forces another model turn, but `stop_hook_active` is always `false`, `last_assistant_message`, `background_tasks`, and `session_crons` are omitted, and the consecutive-block cap is not implemented (`TODO(stop-loop-guard)`). An unconditionally blocking hook therefore force-continues every step unless it self-limits.
 - **Common payload and output fields are partial:** mapped event payloads omit `prompt_id`, `transcript_path`, `permission_mode`, and `effort` where Claude Code would provide them. `systemMessage` is logged + warned but not surfaced; `{"continue": false}` is recorded but does not halt the run; `suppressOutput`, `stopReason`, and `terminalSequence` are not applied (`TODO(hook-continue-false)`).
-- **Handler and config support is partial:** only shell-form command handlers run. `http`, `mcp_tool`, `prompt`, and `agent` handlers are skipped; command-handler options such as `args`, `async`, `asyncRewake`, `shell`, `if`, `once`, and `statusMessage` are not honored. Matching handlers run serially and are not deduplicated, whereas Claude Code runs them in parallel and deduplicates identical handlers. One process-level `configPath` is parsed once at load; Claude Code's layered project, user, plugin, and policy discovery and live reload are not implemented (`TODO(per-session-hook-config)`).
+- **Handler support is partial:** shell-form `command` handlers run, and `http` handlers run (with `allowedHttpHookUrls` + intercept-header `allowedEnvVars`). `prompt` and `agent` handlers are parsed but not yet run (surfaced as a warned no-op); an unknown handler `type` is skipped with a warning. Command-handler options such as `args`, `async`, `asyncRewake`, `shell`, `if`, `once`, and `statusMessage` are not honored; the `prompt`/`agent` `model` override is parsed but unused. Matching handlers run serially and are not deduplicated, whereas Claude Code runs them in parallel and deduplicates identical handlers. One process-level `configPath` is parsed once at load; Claude Code's layered project, user, plugin, and policy discovery and live reload are not implemented (`TODO(per-session-hook-config)`).
