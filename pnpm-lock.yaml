@@ -5605,6 +5605,12 @@ importers:
         specifier: workspace:^
         version: link:../../core/tools
 
+  packages/preset/claude-code-agents:
+    dependencies:
+      js-yaml:
+        specifier: ^4.1.0
+        version: 4.2.0
+
   packages/preset/persona:
     dependencies:
       '@deepseek-ai/schemastery':
