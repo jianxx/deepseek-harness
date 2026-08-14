@@ -713,6 +713,8 @@ export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefin
 /** One scope's complete tool-registry contribution. */
 class ToolLayer implements ScopeLayer {
   readonly tools: NamedEntries<ToolDefinition>
+  /** Known-but-invisible capability names, so a scoped restriction can gate a tool before it loads. */
+  readonly reserved = new NamedEntries<undefined>(name => new Error(`tool name "${name}" is already reserved in this scope`))
   readonly restrictions = new AnonymousEntries<CompiledToolRestriction>()
   readonly guards = new AnonymousEntries<ToolGuard>()
   /**
@@ -730,8 +732,8 @@ class ToolLayer implements ScopeLayer {
 
   /** Whether every contribution table in this aggregate layer is empty. */
   isEmpty(): boolean {
-    return this.tools.isEmpty() && this.restrictions.isEmpty() && this.guards.isEmpty()
-      && this.mode === undefined
+    return this.tools.isEmpty() && this.reserved.isEmpty() && this.restrictions.isEmpty()
+      && this.guards.isEmpty() && this.mode === undefined
   }
 
   /** Whether every compiled restriction in this layer admits a global tool name. */
@@ -969,7 +971,6 @@ export class ToolRuntime extends Service {
         yield ctx.systemPrompt.section(this.sdkSection())
       }
     }.bind(this), 'tools.presentAs()')
-    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous composite teardown; direct return preserves disposer identity
     return dispose
   }
 
@@ -1059,6 +1060,47 @@ export class ToolRuntime extends Service {
       layer => layer.tools.insert(name, definition),
       { label: 'tools.register()' },
     )
+  }
+
+  /**
+   * Reserve a capability NAME in the calling layer without registering a
+   * visible definition. A reserved name joins the known/restrictable universe
+   * — a scope may later `restrict()` it away, and `toolOrder` may list it — but
+   * it never reaches the model-facing schema until a real `register()` supplies
+   * the definition. This is how a deferred-tool registry seeds the names a
+   * composition may gate before their heavy definitions load.
+   *
+   * The name stays out of {@link ToolRuntime.get} and {@link ToolRuntime.schemas}
+   * (only registered definitions are visible). Duplicate reservations within one
+   * layer fail, matching the duplicate-name rule for {@link ToolRuntime.register}.
+   * @param name - the capability name to make known without presenting.
+   * @returns the exact disposer that clears the reservation.
+   */
+  reserve(name: string): () => void {
+    if (name === RUN_CODE_NAME) {
+      throw new Error(`tool name "${RUN_CODE_NAME}" is reserved for the Code Mode presentation transport and cannot be registered or shadowed`)
+    }
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.reserved.insert(name, undefined),
+      { label: 'tools.reserve()' },
+    )
+  }
+
+  /**
+   * Whether a global tool name passes every scoped restriction on the viewing
+   * scope's chain. The answer ignores registration: a reserved or not-yet-loaded
+   * name is admitted if no `allow`/`deny` on the chain masks it, so a caller can
+   * gate whether a deferred capability may load for one agent. A name masked by
+   * an `allow` list it is absent from, or present in a `deny` list, is not
+   * admitted. When a name has multiple restrictions, they intersect (all must
+   * admit it), matching registration visibility.
+   * @param name - the capability name to test.
+   * @param scope - the viewing scope (the agent); omitted for the global view, which has no restrictions.
+   * @returns whether the name may load for that scope.
+   */
+  isAdmitted(name: string, scope?: ScopeKey): boolean {
+    return this.layers.chainLayers(scope).every(layer => layer.admits(name))
   }
 
   /**
@@ -1179,6 +1221,15 @@ export class ToolRuntime extends Service {
       for (const [name, definition] of own.tools.entries()) {
         knownNames.add(name)
         visible.set(name, definition)
+      }
+    }
+    // Reserved names are known and restrictable but never visible: they enter
+    // the inherited universe (so a scope may gate them before load) without a
+    // definition to present. Chain + global, same inheritance shape as tools.
+    for (const { reserved } of [this.layers.global, ...layers]) {
+      for (const name of reserved.keys()) {
+        knownNames.add(name)
+        restrictableNames.add(name)
       }
     }
     // Presentation infrastructure is resolved last and outside capability

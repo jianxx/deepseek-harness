@@ -10,6 +10,7 @@
 | [`session/`](session/README.md) | 事件溯源会话日志和内存存储 | `ctx.sessions` |
 | [`system-prompt/`](system-prompt/README.md) | 提示词和工具 schema 组装注册表 | `ctx.systemPrompt` |
 | [`tools/`](tools/README.md) | 作用域工具注册表和执行流水线 | `ctx.tools` |
+| [`tool-search/`](tool-search/README.md) | 延迟工具注册表 + ToolSearch 加载工具 | `ctx.toolSearch` |
 | [`agent/`](agent/README.md) | Agent 接口、注册表和事件词汇 | `ctx.agents` |
 | [`agent-default-model/`](agent-default-model/README.md) | 各 Agent 入口共享的默认模型选择 | `ctx.agentDefaultModel` |
 | [`agent-loop/`](agent-loop/README.md) | 默认具体 agent 驱动器 | `ctx.agentLoop` |

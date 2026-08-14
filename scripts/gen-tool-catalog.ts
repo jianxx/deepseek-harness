@@ -60,6 +60,7 @@ import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as ToolSubagent from '@deepseek-ai/dsh-tool-subagent'
 import * as ToolWeb from '@deepseek-ai/dsh-tool-web'
+import DeferredToolRegistry from '@deepseek-ai/dsh-tool-search'
 import VmWorkflowEngine from '@deepseek-ai/dsh-workflow-worker-thread'
 import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
@@ -517,6 +518,22 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'todo_write is session-owned state; UIs render the latest todo/write event as a checklist. `allowParallelInProgress` is required with no default, so the catalog states its choice: `true`, whose description invites several `in_progress` items. A deployment choosing `false` receives the same tool with a description asking for exactly one active task.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-search',
+    dir: 'tool-search',
+    source: 'packages/core/tool-search/src/index.ts',
+    requires: ['ctx.tools', 'ctx.systemPrompt'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      // The DeferredToolRegistry service registers the ToolSearch tool in its
+      // constructor; booting it is the whole mount. The harvest captures the
+      // always-visible ToolSearch schema, not any deferred capability (none are
+      // registered and deferred tools never enter the schema).
+      await ctx.plugin(DeferredToolRegistry)
+    },
+    note:
+      'ToolSearch lets a model discover and load deferred tools. Loaded tools enter the schema only AFTER a ToolSearch hit, so this catalog entry shows the search tool itself; the deferred set it manages is deployment- and registration-specific.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-workflow',
