@@ -1,0 +1,21 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../skill/skill-claude-code" },
+    { "path": "../../skill/skill" },
+    { "path": "../../preset/claude-code-agents" },
+    { "path": "../../hooks/hook-protocol" },
+    { "path": "../../core/tools" },
+    { "path": "../../subagent/subagent" },
+    { "path": "../../interaction/commands" },
+    { "path": "../../settings/settings" },
+    { "path": "../../mcp/mcp-client" }
+  ]
+}

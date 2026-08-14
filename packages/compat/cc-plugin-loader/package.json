@@ -1,0 +1,62 @@
+{
+  "name": "@deepseek-ai/dsh-cc-plugin-loader",
+  "description": "Load Claude Code plugin.json manifests as in-memory dsh plugin mounts",
+  "version": "0.1.0-rc.5",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/compat/cc-plugin-loader"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./manifest": {
+      "types": "./lib/types/manifest.d.ts",
+      "default": "./lib/manifest.js"
+    },
+    "./seams": {
+      "types": "./lib/types/seams.d.ts",
+      "default": "./lib/seams.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/manifest.js",
+    "lib/seams.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-claude-code-agents": "workspace:^",
+    "@deepseek-ai/dsh-commands": "workspace:^",
+    "@deepseek-ai/dsh-hook-protocol": "workspace:^",
+    "@deepseek-ai/dsh-mcp-client": "workspace:^",
+    "@deepseek-ai/dsh-settings": "workspace:^",
+    "@deepseek-ai/dsh-skill": "workspace:^",
+    "@deepseek-ai/dsh-skill-claude-code": "workspace:^",
+    "@deepseek-ai/dsh-subagent": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-claude-code-agents": "workspace:^",
+    "@deepseek-ai/dsh-commands": "workspace:^",
+    "@deepseek-ai/dsh-hook-protocol": "workspace:^",
+    "@deepseek-ai/dsh-mcp-client": "workspace:^",
+    "@deepseek-ai/dsh-settings": "workspace:^",
+    "@deepseek-ai/dsh-skill": "workspace:^",
+    "@deepseek-ai/dsh-skill-claude-code": "workspace:^",
+    "@deepseek-ai/dsh-subagent": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/cordis": "workspace:^"
+  }
+}
