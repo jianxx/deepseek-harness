@@ -22,12 +22,12 @@ describe('resolveToolRestriction', () => {
   })
 
   it('throws when tools holds a non-string element', () => {
-    expect(() => resolveToolRestriction(['Read', 42], undefined))
+    expect(() => resolveToolRestriction(['Read', 42 as unknown as string], undefined))
       .toThrow(/tools must name tools as strings/)
   })
 
   it('throws when disallowedTools holds a non-string element', () => {
-    expect(() => resolveToolRestriction(undefined, [null]))
+    expect(() => resolveToolRestriction(undefined, [null as unknown as string]))
       .toThrow(/disallowedTools must name tools as strings/)
   })
 })

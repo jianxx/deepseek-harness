@@ -59,7 +59,7 @@ describe('parseCcFrontmatter', () => {
       paths: ['src'],
       unknown: { 'custom-unknown': 'whatever' },
     })
-    expect(parsed.model).toBeUndefined()
+    expect(parsed?.model).toBeUndefined()
   })
 
   it('returns undefined for a document without frontmatter', () => {

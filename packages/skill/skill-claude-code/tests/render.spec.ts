@@ -54,7 +54,7 @@ describe('extractInlineShell', () => {
   it('returns a single text segment when no inline shell is present', () => {
     const parts = extractInlineShell('just text')
     expect(parts).toHaveLength(1)
-    expect(parts[0].kind).toBe('text')
+    expect(parts[0]?.kind).toBe('text')
   })
 })
 
