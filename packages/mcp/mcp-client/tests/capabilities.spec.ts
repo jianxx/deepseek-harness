@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { CallId } from '@deepseek-ai/dsh-llm'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -61,13 +62,13 @@ describe('syncResources', () => {
     expect(ctx.tools.get('mcp__github__read_mcp_resource')).toBeDefined()
 
     const list = await ctx.tools.execute({
-      callId: 'c1', name: 'mcp__github__list_mcp_resources', arguments: {}, signal: new AbortController().signal,
+      callId: CallId('c1'), name: 'mcp__github__list_mcp_resources', arguments: {}, signal: new AbortController().signal,
     })
     if (list.isError) throw new Error('list failed')
     expect(list.content[0]).toEqual({ type: 'text', text: 'file:///a — a' })
 
     const read = await ctx.tools.execute({
-      callId: 'c2', name: 'mcp__github__read_mcp_resource', arguments: { uri: 'file:///a' }, signal: new AbortController().signal,
+      callId: CallId('c2'), name: 'mcp__github__read_mcp_resource', arguments: { uri: 'file:///a' }, signal: new AbortController().signal,
     })
     if (read.isError) throw new Error('read failed')
     expect(read.content[0]).toEqual({ type: 'text', text: 'hello' })

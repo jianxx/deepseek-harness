@@ -60,7 +60,7 @@ describe('CredentialsOAuthClientProvider', () => {
     const ctx = await bootCredentials()
     const provider = new CredentialsOAuthClientProvider(ctx, 'srv', {})
 
-    await provider.saveTokens({ access_token: 't' })
+    await provider.saveTokens({ access_token: 't', token_type: 'Bearer' })
     await provider.saveClientInformation({ client_id: 'c' })
     await provider.invalidateCredentials('tokens')
     expect(await provider.tokens()).toBeUndefined()

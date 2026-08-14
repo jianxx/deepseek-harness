@@ -59,7 +59,7 @@ async function mountRegistry(): Promise<Context> {
 }
 
 function stdioConfig(overrides: Partial<Config> = {}): Config {
-  return {
+  const base: Config = {
     transport: 'stdio',
     serverName: 'srv',
     command: 'node',
@@ -68,8 +68,8 @@ function stdioConfig(overrides: Partial<Config> = {}): Config {
     cwd: '',
     toolCallTimeoutMs: 60_000,
     failOnStartupError: true,
-    ...overrides,
   }
+  return { ...base, ...overrides } as Config
 }
 
 beforeEach(() => {
