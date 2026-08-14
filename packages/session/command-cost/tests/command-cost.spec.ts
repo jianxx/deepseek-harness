@@ -5,7 +5,8 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, TokenUsage } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import * as commandCost from '@deepseek-ai/dsh-command-cost'
 import type { ModelPrice } from '@deepseek-ai/dsh-command-cost/cost'
 import { callCost, foldCost, formatCostReport, formatUsd, resolvePrice } from '@deepseek-ai/dsh-command-cost/cost'
@@ -48,7 +49,7 @@ describe('@deepseek-ai/dsh-command-cost registration', () => {
       session,
       inbox: null as never,
       ctx: new Context(),
-      get status() { return 'idle' },
+      get status(): 'idle' { return 'idle' },
       send: () => {},
       followup: () => {},
       steer: () => {},

@@ -6,6 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import CommandRuntime, { type CommandResult } from '@deepseek-ai/dsh-commands'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -81,7 +82,7 @@ async function harness(overrides: unknown): Promise<{
     session,
     inbox: null as never,
     ctx: new Context(),
-    get status() { return 'idle' },
+    get status(): 'idle' { return 'idle' },
     send: () => {},
     followup: () => {},
     steer: () => {},
@@ -174,6 +175,7 @@ describe('/export human command', () => {
   it('writes a markdown transcript to the default directory and reports the path', async () => {
     const test = await harness({})
     test.session.append('user/message', {
+      id: MessageId('m1'),
       role: 'user',
       source: { kind: 'user' },
       content: [{ type: 'text', text: 'hi' }],
@@ -190,6 +192,7 @@ describe('/export human command', () => {
   it('writes a json transcript to a supplied explicit path', async () => {
     const test = await harness({})
     test.session.append('user/message', {
+      id: MessageId('m1'),
       role: 'user',
       source: { kind: 'user' },
       content: [{ type: 'text', text: 'hi' }],
