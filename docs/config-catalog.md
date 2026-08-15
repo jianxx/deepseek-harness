@@ -387,6 +387,37 @@ Depends on: [`LocalConfig`](#deepseek-aidsh-bash-local)
 
 Source: [`packages/shell/bash-sandbox/src/index.ts:35`](../packages/shell/bash-sandbox/src/index.ts)
 
+<a id="deepseek-aidsh-cc-output-styles"></a>
+
+## `@deepseek-ai/dsh-cc-output-styles`
+
+Requires: `systemPrompt` · `commands`
+
+```ts config-catalog
+/** Plugin config: composition-level style selection and custom style sources. */
+export interface Config {
+  /** Output style name; defaults to {@link DEFAULT_OUTPUT_STYLE}. */
+  outputStyle?: string
+  /**
+   * Project root whose `.claude/output-styles/` directory contributes custom
+   * styles. Defaults to the current working directory.
+   */
+  projectRoot?: string
+  /**
+   * Harness home whose `output-styles/` directory contributes custom styles.
+   * Defaults to the deepseek harness home (`~/.dsh`).
+   */
+  harnessHome?: string
+  /**
+   * Explicit custom-style directories, replacing the computed project and
+   * harness directories. Later directories override same-named earlier styles.
+   */
+  dirs?: string[]
+}
+```
+
+Source: [`packages/compat/cc-output-styles/src/index.ts:61`](../packages/compat/cc-output-styles/src/index.ts)
+
 <a id="deepseek-aidsh-client-connection"></a>
 
 ## `@deepseek-ai/dsh-client-connection`
@@ -511,6 +542,34 @@ export interface ModelCompactPolicyConfig extends CompactionPolicyConfig {
 
 Source: [`packages/compaction/compaction-basic/src/types.ts:38`](../packages/compaction/compaction-basic/src/types.ts)
 
+<a id="deepseek-aidsh-compaction-micro"></a>
+
+## `@deepseek-ai/dsh-compaction-micro`
+
+Requires: `tokenMeter`
+
+```ts config-catalog
+/**
+ * Microcompact policy: how many of the most recent `tool/result` surface nodes
+ * are retained verbatim, everything older being eligible for a placeholder
+ * replacement.
+ */
+export interface MicrocompactConfig {
+  /** Keep the most recent N tool results verbatim. Defaults to `10`. */
+  retainResults?: number
+  /**
+   * Register an `agent/pre-step` hook that runs the microcompact pass before
+   * the turn's model request, so stale results are collapsed ahead of
+   * summarization. Defaults to `false` (invoke {@link ToolResultMicrocompactor.microcompactSession} explicitly).
+   */
+  auto?: boolean
+  /** Maximum text code points in a generated placeholder (excluding a re-embedded spill locator). Defaults to `256`. */
+  placeholderChars?: number
+}
+```
+
+Source: [`packages/compaction/compaction-micro/src/types.ts:8`](../packages/compaction/compaction-micro/src/types.ts)
+
 <a id="deepseek-aidsh-compaction-tool-result-pruner"></a>
 
 ## `@deepseek-ai/dsh-compaction-tool-result-pruner`
@@ -530,6 +589,36 @@ export interface ToolResultPruneConfig {
 ```
 
 Source: [`packages/compaction/compaction-tool-result-pruner/src/types.ts:4`](../packages/compaction/compaction-tool-result-pruner/src/types.ts)
+
+<a id="deepseek-aidsh-coordinator"></a>
+
+## `@deepseek-ai/dsh-coordinator`
+
+Requires: `tools` · `subagents` · `agents` · `systemPrompt`
+
+```ts config-catalog
+/** Config governing one coordinator agent's mode activation. */
+export interface CoordinatorConfig {
+  /**
+   * Activate coordinator mode. Defaults to the `DSH_COORDINATOR_MODE` env flag
+   * (`1`, `true`, or `yes`), so a deployment toggles it without config edits.
+   */
+  readonly enabled?: boolean
+  /**
+   * The tool visibility mask applied to the coordinator agent's scope on
+   * activation. Deployment-chosen write-tool names go in `deny`; a curated
+   * `allow` list narrows to a fixed set instead. Defaults to
+   * {@link DEFAULT_COORDINATOR_RESTRICT}.
+   */
+  readonly restrict?: ToolRestriction
+  /** Prompt order of the coordinator section (default 110). */
+  readonly sectionOrder?: number
+}
+```
+
+Depends on: [`ToolRestriction`](subsystems/tools.md)
+
+Source: [`packages/subagent/coordinator/src/index.ts:31`](../packages/subagent/coordinator/src/index.ts)
 
 <a id="deepseek-aidsh-cordis-host-runner"></a>
 
@@ -689,10 +778,18 @@ export interface Config {
   defaultTimeoutMs?: number
   /** Character cap for the `hook/result` event's persisted stderr summary. */
   stderrSummaryMaxChars?: number
+  /**
+   * URL-pattern allowlist (`*` wildcard) enforced before any `http` hook POST.
+   * Absent/empty (the schemastery default) is unrestricted — the safe default
+   * that cannot silently block http hooks; non-empty restricts to matching URLs.
+   */
+  allowedHttpHookUrls?: string[]
+  /** Env-var names allowed to interpolate into `http` hook header values. */
+  httpAllowedEnvVars?: string[]
 }
 ```
 
-Source: [`packages/hooks/hooks-claude-code/src/index.ts:45`](../packages/hooks/hooks-claude-code/src/index.ts)
+Source: [`packages/hooks/hooks-claude-code/src/index.ts:47`](../packages/hooks/hooks-claude-code/src/index.ts)
 
 <a id="deepseek-aidsh-hooks-codex"></a>
 
@@ -719,7 +816,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-codex/src/index.ts)
+Source: [`packages/hooks/hooks-codex/src/index.ts:43`](../packages/hooks/hooks-codex/src/index.ts)
 
 <a id="deepseek-aidsh-host-apiproxy"></a>
 
@@ -1211,8 +1308,8 @@ Source: [`packages/lsp/lsp-stdio/src/index.ts:82`](../packages/lsp/lsp-stdio/src
 Requires: `tools`
 
 ```ts config-catalog
-/** Configuration for one stdio or Streamable HTTP MCP server. */
-export type Config = StdioConfig | StreamableHttpConfig
+/** Configuration for one stdio, Streamable HTTP, or SSE MCP server. */
+export type Config = StdioConfig | StreamableHttpConfig | SseConfig
 
 /** Config for connecting to an MCP server via a spawned child process over stdio. */
 export interface StdioConfig {
@@ -1254,6 +1351,32 @@ export interface StreamableHttpConfig {
   url: string
   /** Additional headers attached to MCP requests. */
   headers: Record<string, string>
+  /** Optional OAuth flow; wires a credentials-backed client provider. */
+  oauth?: OAuthConfig
+  /** Per-tool-call timeout in milliseconds. */
+  toolCallTimeoutMs: number
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
+  failOnStartupError: boolean
+  /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
+  reconnect?: ReconnectConfig
+}
+
+/** Config for connecting to an MCP server over legacy HTTP + SSE. */
+export interface SseConfig {
+  /** Selects the SSE transport. */
+  transport: 'sse'
+  /**
+   * Stable local namespace for this server's model-facing tool names
+   * (`mcp__<serverName>__<rawName>`). Must match `[A-Za-z0-9_-]{1,32}` and be
+   * unique across live mcp-client instances.
+   */
+  serverName: string
+  /** MCP SSE endpoint URL. */
+  url: string
+  /** Additional headers attached to MCP requests. */
+  headers: Record<string, string>
+  /** Optional OAuth flow; wires a credentials-backed client provider. */
+  oauth?: OAuthConfig
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -1273,9 +1396,74 @@ export interface ReconnectConfig {
   /** Consecutive failed attempts per outage before giving up for good (default 10). */
   maxAttempts?: number
 }
+
+/** Config selecting an interactive OAuth flow for a network transport. */
+export interface OAuthConfig {
+  /** Redirect URL the user agent returns to after authorizing. */
+  redirectUrl?: string
+  /** Stable OAuth client name reported to the authorization server. */
+  clientName?: string
+  /**
+   * Credential-reference prefix (defaults to `MCP_OAUTH_<SERVER>`); the provider
+   * derives `_TOKENS`, `_CLIENT`, `_VERIFIER`, and `_DISCOVERY` refs from it.
+   */
+  credentialPrefix?: string
+}
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:98`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:126`](../packages/mcp/mcp-client/src/index.ts)
+
+<a id="deepseek-aidsh-memory"></a>
+
+## `@deepseek-ai/dsh-memory`
+
+Requires: `systemPrompt`
+
+```ts config-catalog
+/** Memory plugin configuration. */
+export interface Config {
+  /** Memory directory root. Defaults to the harness home `memory/`. */
+  memoryHome?: string
+  /** Whether the `memory` system-prompt section is registered (default true). */
+  sectionEnabled?: boolean
+  /** Whether dynamic recall runs on pre-step (default true). */
+  recallEnabled?: boolean
+  /** One-shot subagent provider used by recall (default `fork`). */
+  recallProviderName?: string
+  /** Optional small-model selection passed to the recall subagent. */
+  recallAgentOptions?: unknown
+}
+```
+
+Source: [`packages/memory/memory/src/index.ts:38`](../packages/memory/memory/src/index.ts)
+
+<a id="deepseek-aidsh-memory-consolidation"></a>
+
+## `@deepseek-ai/dsh-memory-consolidation`
+
+Requires: `jobs` · `subagents`
+
+```ts config-catalog
+/** Memory consolidation configuration. */
+export interface Config {
+  /** Memory directory root. Defaults to the harness home `memory/`. */
+  memoryHome?: string
+  /** Turn-end extraction runs (default true). */
+  extractEnabled?: boolean
+  /** The three-gate dream runs (default true). */
+  dreamEnabled?: boolean
+  /** Minimum hours between consolidations (default 24). */
+  minHours?: number
+  /** Minimum new transcripts to consolidate (default 5). */
+  minSessions?: number
+  /** A lock holder is stale past this window (default 1 hour). */
+  lockStaleMs?: number
+  /** One-shot subagent provider for forks (default `fork`). */
+  subagentProviderName?: string
+}
+```
+
+Source: [`packages/memory/memory-consolidation/src/index.ts:35`](../packages/memory/memory-consolidation/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 
@@ -1331,6 +1519,87 @@ export interface PresetSpec {
 Depends on: [`ApprovalPolicy`](subsystems/approval.md) · [`SandboxMode`](subsystems/sandbox.md)
 
 Source: [`packages/interaction/permission-presets/src/index.ts:140`](../packages/interaction/permission-presets/src/index.ts)
+
+<a id="deepseek-aidsh-permission-rules"></a>
+
+## `@deepseek-ai/dsh-permission-rules`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Plugin config. All optional; the schema applies the defaults shown. */
+export interface Config {
+  /**
+   * The rule set provided directly by composition, parsed with source
+   * `config`. Merged with the optional settings section by source priority
+   * (settings rules win).
+   */
+  rules?: ConfigRules
+  /** Settings namespace holding allow/deny/ask/defaultMode; defaults to `permissions`. */
+  settingsNamespace?: string
+  /**
+   * The source label applied to settings-resolved rules; defaults to
+   * `userSettings`. Lets a deployment attribute settings rules to a different
+   * settings layer (project/local/…).
+   */
+  settingsSource?: PermissionRuleSource
+  /** Default mode for sessions without a `permission/mode` override; defaults to `default`. */
+  defaultMode?: PermissionMode
+  /** Tool name treated as the shell-command tool for content extraction; defaults to `Bash`. */
+  bashToolName?: string
+  /** File-edit tool names auto-allowed under `acceptEdits` mode. */
+  fileEditTools?: string[]
+  /** Read-only tool names auto-allowed under `plan` mode. */
+  readOnlyTools?: string[]
+  /**
+   * Skip a whole-tool `ask` for a sandboxed (confining, non-full-access)
+   * `Bash` call — allow instead. Defaults to `false`.
+   */
+  exemptSandboxedBashFromToolAsk?: boolean
+  /** Whether `bypassPermissions` mode is disabled (falls back to `default`). */
+  disableBypassPermissionsMode?: boolean
+}
+
+/** The Config-provided rule set: strings parsed as source-`config` rules. */
+export interface ConfigRules {
+  /** Allow rules. */
+  allow?: string[]
+  /** Deny rules. */
+  deny?: string[]
+  /** Ask rules. */
+  ask?: string[]
+  /**
+   * Bypass-immune deny rules (e.g. `.git` internals, shell-config paths):
+   * enforced through the monotonic guard layer, never overridable by a mode
+   * switch or `bypassPermissions`.
+   */
+  bypassImmune?: string[]
+}
+
+/** Where a {@link PermissionRule} came from, in descending evaluation priority. */
+export type PermissionRuleSource =
+  /** Highest priority — a rule imposed by the delegation/session layer. */
+  | 'session'
+  /** A rule passed on the command line at launch. */
+  | 'cliArg'
+  /** A rule imposed by an external policy document. */
+  | 'policySettings'
+  /** A rule from a feature-flag or launch-flag settings layer. */
+  | 'flagSettings'
+  /** A rule from the local (machine-scoped) settings layer. */
+  | 'localSettings'
+  /** A rule from the project/workspace-scoped settings layer. */
+  | 'projectSettings'
+  /** A rule from the user settings layer. */
+  | 'userSettings'
+  /** Lowest priority — a rule from the plugin's composition `Config`. */
+  | 'config'
+
+/** The engine's permission mode, controlling tool-class and safe-mode short-circuits. */
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
+```
+
+Source: [`packages/interaction/permission-rules/src/index.ts:87`](../packages/interaction/permission-rules/src/index.ts)
 
 <a id="deepseek-aidsh-persona"></a>
 
@@ -1813,6 +2082,44 @@ Depends on: [`SessionTitleLlmConfig`](../packages/session/session-title-llm/src/
 
 Source: [`packages/session/session-title-first-prompt-llm/src/index.ts:15`](../packages/session/session-title-first-prompt-llm/src/index.ts)
 
+<a id="deepseek-aidsh-settings-cascade"></a>
+
+## `@deepseek-ai/dsh-settings-cascade`
+
+```ts config-catalog
+/** Plugin configuration: source file locations and switches. */
+export interface Config {
+  /** Project root used for the default project/local setting paths. */
+  projectDir?: string
+  /** Harness home used for the default user settings path. */
+  dshHome?: string
+  /** User settings file; defaults to `settings.json` under the harness home. */
+  userSettingsPath?: string
+  /** Project settings file; defaults to `<project>/.claude/settings.json`. */
+  projectSettingsPath?: string
+  /** Local settings file; defaults to `<project>/.claude/settings.local.json`. */
+  localSettingsPath?: string
+  /** Command-line `--settings` file; the flag layer's file half. */
+  flagSettingsPath?: string
+  /** Inline `--settings` content; merged over the flag file. */
+  flagSettingsInline?: unknown
+  /** Policy sub-sources; the first non-empty one wins. */
+  policy?: CascadePolicyConfig
+}
+
+/** Policy sub-sources in first-source-wins priority order. */
+export interface CascadePolicyConfig {
+  /** Hosted remote settings — the highest-priority policy source. */
+  remoteSettings?: unknown
+  /** System-level managed settings file. */
+  systemPath?: string
+  /** User-writable managed settings file. */
+  userPath?: string
+}
+```
+
+Source: [`packages/settings/settings-cascade/src/index.ts:48`](../packages/settings/settings-cascade/src/index.ts)
+
 <a id="deepseek-aidsh-settings-file"></a>
 
 ## `@deepseek-ai/dsh-settings-file`
@@ -1860,6 +2167,28 @@ export interface Config {
 ```
 
 Source: [`packages/skill/skill/src/index.ts:279`](../packages/skill/skill/src/index.ts)
+
+<a id="deepseek-aidsh-skill-claude-code"></a>
+
+## `@deepseek-ai/dsh-skill-claude-code`
+
+Requires: `skills`
+
+```ts config-catalog
+/** Claude Code skill provider configuration. */
+export interface Config {
+  /** Unique provider name. Defaults to `claude-code`. */
+  providerName?: string
+  /** Harness home that owns the user skill root. */
+  dshHome?: string
+  /** Optional managed policy skill root, scanned before all defaults. */
+  managedDir?: string
+  /** Additional skill roots appended after project and user roots. */
+  additionalDirs?: string[]
+}
+```
+
+Source: [`packages/skill/skill-claude-code/src/index.ts:53`](../packages/skill/skill-claude-code/src/index.ts)
 
 <a id="deepseek-aidsh-skill-filesystem"></a>
 
@@ -2428,6 +2757,24 @@ export interface Config {
 ```
 
 Source: [`packages/fs/tool-fs-search/src/index.ts:73`](../packages/fs/tool-fs-search/src/index.ts)
+
+<a id="deepseek-aidsh-tool-git-worktree"></a>
+
+## `@deepseek-ai/dsh-tool-git-worktree`
+
+Requires: `tools` · `shell` · `systemPrompt` · `fs`
+
+```ts config-catalog
+/** Runtime configuration for the git-worktree tools. */
+export interface Config {
+  /** Whether `EnterWorktree` may create worktrees (default true). */
+  enableEnterWorktree?: boolean
+  /** Whether `ExitWorktree` may remove worktrees (default true). */
+  enableExitWorktree?: boolean
+}
+```
+
+Source: [`packages/workspace/tool-git-worktree/src/index.ts:43`](../packages/workspace/tool-git-worktree/src/index.ts)
 
 <a id="deepseek-aidsh-tool-goal"></a>
 
@@ -3087,6 +3434,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-tool-ask-user` — requires `tools` · `userQuestions` ([`packages/interaction/tool-ask-user/src/index.ts`](../packages/interaction/tool-ask-user/src/index.ts))
 - `@deepseek-ai/dsh-tool-call-timeout-policy` — requires `tools` ([`packages/guard/timeout-policy/src/index.ts`](../packages/guard/timeout-policy/src/index.ts))
 - `@deepseek-ai/dsh-tool-cordis` — requires `tools` · `systemPrompt` · `dynamicCordisRunner` · `cordisInspect` ([`packages/extensions/tool-cordis/src/index.ts`](../packages/extensions/tool-cordis/src/index.ts))
+- `@deepseek-ai/dsh-tool-search` — requires `tools` ([`packages/core/tool-search/src/index.ts`](../packages/core/tool-search/src/index.ts))
 - `@deepseek-ai/dsh-tool-subagent-control` — requires `tools` · `subagents` ([`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts))
 - `@deepseek-ai/dsh-user-questions` ([`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts))
 - `@deepseek-ai/dsh-workspace` — requires `storageDomain` · `sessionPersistence` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
@@ -3122,6 +3470,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-atomic-write` ([`packages/util/atomic-write/src/index.ts`](../packages/util/atomic-write/src/index.ts))
 - `@deepseek-ai/dsh-base` ([`packages/bundle/base/src/index.ts`](../packages/bundle/base/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
+- `@deepseek-ai/dsh-claude-code-agents` ([`packages/preset/claude-code-agents/src/index.ts`](../packages/preset/claude-code-agents/src/index.ts))
 - `@deepseek-ai/dsh-client-schema-form` ([`packages/client/schema-form/src/index.ts`](../packages/client/schema-form/src/index.ts))
 - `@deepseek-ai/dsh-client-test-runtime` ([`packages/test-support/client-runtime/src/index.ts`](../packages/test-support/client-runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-attachment` ([`packages/client/ui-attachment/src/index.ts`](../packages/client/ui-attachment/src/index.ts))
@@ -3135,6 +3484,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-launch-environment` ([`packages/util/launch-environment/src/index.ts`](../packages/util/launch-environment/src/index.ts))
 - `@deepseek-ai/dsh-llm-mock-server` ([`packages/test-support/llm-mock-server/src/index.ts`](../packages/test-support/llm-mock-server/src/index.ts))
 - `@deepseek-ai/dsh-loader-smoke` ([`packages/test-support/loader-smoke/src/index.ts`](../packages/test-support/loader-smoke/src/index.ts))
+- `@deepseek-ai/dsh-mcp-config` ([`packages/mcp/mcp-config/src/index.ts`](../packages/mcp/mcp-config/src/index.ts))
 - `@deepseek-ai/dsh-native-command` ([`packages/util/native-command/src/index.ts`](../packages/util/native-command/src/index.ts))
 - `@deepseek-ai/dsh-output-retention` ([`packages/util/output-retention/src/index.ts`](../packages/util/output-retention/src/index.ts))
 - `@deepseek-ai/dsh-sandbox-windows-acl` ([`packages/sandbox/sandbox-windows-acl/src/index.ts`](../packages/sandbox/sandbox-windows-acl/src/index.ts))

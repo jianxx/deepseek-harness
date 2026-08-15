@@ -504,6 +504,36 @@ presentAs(mode: ToolPresentationMode): () => void
 register(definition: ToolDefinition): () => void
 
 /**
+ * Reserve a capability NAME in the calling layer without registering a
+ * visible definition. A reserved name joins the known/restrictable universe
+ * — a scope may later `restrict()` it away, and `toolOrder` may list it — but
+ * it never reaches the model-facing schema until a real `register()` supplies
+ * the definition. This is how a deferred-tool registry seeds the names a
+ * composition may gate before their heavy definitions load.
+ *
+ * The name stays out of {@link ToolRuntime.get} and {@link ToolRuntime.schemas}
+ * (only registered definitions are visible). Duplicate reservations within one
+ * layer fail, matching the duplicate-name rule for {@link ToolRuntime.register}.
+ * @param name - the capability name to make known without presenting.
+ * @returns the exact disposer that clears the reservation.
+ */
+reserve(name: string): () => void
+
+/**
+ * Whether a global tool name passes every scoped restriction on the viewing
+ * scope's chain. The answer ignores registration: a reserved or not-yet-loaded
+ * name is admitted if no `allow`/`deny` on the chain masks it, so a caller can
+ * gate whether a deferred capability may load for one agent. A name masked by
+ * an `allow` list it is absent from, or present in a `deny` list, is not
+ * admitted. When a name has multiple restrictions, they intersect (all must
+ * admit it), matching registration visibility.
+ * @param name - the capability name to test.
+ * @param scope - the viewing scope (the agent); omitted for the global view, which has no restrictions.
+ * @returns whether the name may load for that scope.
+ */
+isAdmitted(name: string, scope?: ScopeKey): boolean
+
+/**
  * Restrict global tools for the calling agent scope. Empty filters, unknown
  * names, scope-local names, and reserved transport names fail. Restrictions
  * intersect; scoped registrations remain visible.
@@ -571,7 +601,55 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](scope.md)
 
-Source: [`packages/core/tools/src/index.ts:787`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:789`](../../packages/core/tools/src/index.ts)
+
+<a id="ctxtoolsearch--deferredtoolregistry"></a>
+
+### `ctx.toolSearch` — `DeferredToolRegistry`
+
+Deferred tool registry and the ToolSearch tool.
+
+Deferred registrations are host-plane effects: they land in the calling context's scope layer and unwind with it. The tool itself (registered on the `tools` row) lets a model search the deferred set and load a hit — gated by the calling agent's tool restriction, so a deferred tool a scope denies is never loaded for it.
+
+```ts cordis-catalog
+/**
+ * Register a deferred capability. The name+description (+hint) are searchable
+ * but invisible until activated; an {@link DeferredToolRegistration.alwaysLoad}
+ * tool activates immediately for everyone. Registration is an effect: the
+ * returned disposer removes the deferred entry and, if it was activated, its
+ * real `ctx.tools` registration together.
+ * @param reg - the deferred descriptor and activation callback.
+ * @returns the exact disposer that reclaims both the deferred entry and any loaded tool.
+ */
+registerDeferred(reg: DeferredToolRegistration): () => void
+
+/**
+ * Rank the deferred, not-yet-loaded tools against a query. Returns the top
+ * `maxResults` accessible candidates in descending relevance. This is the pure
+ * matching step; loading (and its restriction gate) happens in
+ * {@link DeferredToolRegistry.activate}.
+ * @param query - free-text keyword query.
+ * @param maxResults - how many hits to return (default 5).
+ * @returns ranked, scored matches that are still deferred.
+ */
+search(query: string, maxResults: number = 5): DeferredSearchHit[]
+
+/**
+ * Load one deferred tool for a scope, idempotently. A hit that the scope's
+ * tool restriction denies is NOT loaded (guard semantics take priority over
+ * ToolSearch, so the loading gate is not an end-run around `restrict()`); an
+ * already-loaded or `alwaysLoad` tool reports `already-loaded` without
+ * re-registering; an absent name reports `unknown`.
+ * @param name - the deferred tool name.
+ * @param scope - the calling agent scope whose restriction gates the load.
+ * @returns the load outcome for the model-facing result.
+ */
+activate(name: string, scope?: ScopeKey): DeferredActivationResult
+```
+
+Types: [ScopeKey](scope.md)
+
+Source: [`packages/core/tool-search/src/index.ts:140`](../../packages/core/tool-search/src/index.ts)
 
 <a id="tools-events"></a>
 

@@ -47,6 +47,7 @@ import CordisHostRunner from '@deepseek-ai/dsh-cordis-host-runner'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+import * as ToolGitWorktree from '@deepseek-ai/dsh-tool-git-worktree'
 import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
 import TerminalSessionService from '@deepseek-ai/dsh-terminal'
 import * as ToolPty from '@deepseek-ai/dsh-tool-terminal'
@@ -328,6 +329,21 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background jobs) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-git-worktree',
+    dir: 'tool-git-worktree',
+    source: 'packages/workspace/tool-git-worktree/src/index.ts',
+    requires: ['ctx.tools', 'ctx.shell', 'ctx.systemPrompt', 'ctx.fs'],
+    writes: ['tool/call', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(LocalBashExecutor)
+      await ctx.plugin(LocalFileSystem)
+      await ctx.plugin(ToolGitWorktree)
+    },
+    note:
+      'EnterWorktree/ExitWorktree run real `git worktree` commands through the ctx.shell seam and gate the worktree path through ctx.fs containment; the tools manage session state (cwd/branch) but log no session events beyond the standard tool/call and tool/result pair.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-terminal',

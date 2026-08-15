@@ -907,6 +907,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'microcompactor',
+    summary: 'Model-free retention-window microcompaction service.',
+    description: 'Model-free retention-window microcompaction service. Keeps the most recent MicrocompactConfig.retainResults tool results verbatim and replaces every older one with a deterministic placeholder that reuses the original spill locator when one was cited. Each replacement preserves the complete event data except for `content`, cites the shadowed node for replay, and is immediately preceded by a `compaction/prune` shadow-price event pricing the shadowed node through the injected token meter — mirroring the sibling `ToolResultPruner` shadow-price protocol.',
+    methods: [
+      {
+        signature: 'readonly config: ResolvedConfig',
+        description: 'Resolved and immutable policy.',
+        parameters: [],
+      },
+      {
+        signature: 'microcompactSession(session: Session): MicrocompactResult',
+        description: 'Collapse every out-of-window tool result from one stable current-surface snapshot. The most recent `retainResults` tool results are kept verbatim; each older result that is not already a placeholder is replaced by a deterministic placeholder (reusing the original\'s spill locator when one is cited). Already-collapsed results are never re-decided, so a repeated pass over unchanged history emits a byte-identical prompt (freeze semantics).',
+        parameters: [{ name: 'session', description: 'session whose current surface is rewritten.' }],
+        returns: 'landed placeholder replacements and a stability flag.',
+        throws: ['when the session rejects a replacement; replacements committed earlier in the pass remain durable.'],
+      },
+    ],
+  },
+  {
     key: 'permissionPresets',
     summary: 'Owns the deployment\'s permission presets and their write path.',
     description: 'Owns the deployment\'s permission presets and their write path. Requires a confining `ctx.shell` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.',
@@ -941,6 +960,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'set(session: Session, name: string): void',
         description: 'Record a changed preset, then update each changed knob through its own setter. Selecting the effective preset again appends nothing.',
         parameters: [{ name: 'session', description: 'the session the switch belongs to.' }, { name: 'name', description: 'the preset to switch to; unknown names throw.' }],
+      },
+    ],
+  },
+  {
+    key: 'permissionRules',
+    summary: 'The engine\'s Service Definition plus the mode/rule write and read surface.',
+    description: 'The engine\'s Service Definition plus the mode/rule write and read surface.',
+    methods: [
+      {
+        signature: 'setMode(agent: Agent, mode: PermissionMode): void',
+        description: 'Record a session\'s permission-mode override. Plan activation, when active, still overlays at call time.',
+        parameters: [{ name: 'agent', description: 'the live agent whose mode is changing.' }, { name: 'mode', description: 'the new permission mode; unknown modes throw.' }],
       },
     ],
   },
@@ -1902,6 +1933,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the exact disposer that unregisters the tool.',
       },
       {
+        signature: 'reserve(name: string): () => void',
+        description: 'Reserve a capability NAME in the calling layer without registering a visible definition. A reserved name joins the known/restrictable universe — a scope may later `restrict()` it away, and `toolOrder` may list it — but it never reaches the model-facing schema until a real `register()` supplies the definition. This is how a deferred-tool registry seeds the names a composition may gate before their heavy definitions load.\n\nThe name stays out of ToolRuntime.get and ToolRuntime.schemas (only registered definitions are visible). Duplicate reservations within one layer fail, matching the duplicate-name rule for ToolRuntime.register.',
+        parameters: [{ name: 'name', description: 'the capability name to make known without presenting.' }],
+        returns: 'the exact disposer that clears the reservation.',
+      },
+      {
+        signature: 'isAdmitted(name: string, scope?: ScopeKey): boolean',
+        description: 'Whether a global tool name passes every scoped restriction on the viewing scope\'s chain. The answer ignores registration: a reserved or not-yet-loaded name is admitted if no `allow`/`deny` on the chain masks it, so a caller can gate whether a deferred capability may load for one agent. A name masked by an `allow` list it is absent from, or present in a `deny` list, is not admitted. When a name has multiple restrictions, they intersect (all must admit it), matching registration visibility.',
+        parameters: [{ name: 'name', description: 'the capability name to test.' }, { name: 'scope', description: 'the viewing scope (the agent); omitted for the global view, which has no restrictions.' }],
+        returns: 'whether the name may load for that scope.',
+      },
+      {
         signature: 'restrict(filter: ToolRestriction): () => void',
         description: 'Restrict global tools for the calling agent scope. Empty filters, unknown names, scope-local names, and reserved transport names fail. Restrictions intersect; scoped registrations remain visible.',
         parameters: [{ name: 'filter', description: 'global-tool mask: `allow` (keep only) and/or `deny` (remove).' }],
@@ -1936,6 +1979,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Execute through pre-policy, guards, around-dispatch, post-policy, definition-owned content finalization, and final notification. Tool and listener failures resolve as materialized error results; an invisible tool reports `UNKNOWN_TOOL`. The returned outcome is the same lossless, frozen snapshot final observers receive. Cancellation arriving after entry and before final result materialization skips a not-yet-started body with `ABORTED_BEFORE_DISPATCH` or replaces a successful started outcome with `ABORTED`; already-started work is still drained and may retain a tool-owned structured error.',
         parameters: [{ name: 'exec', description: 'the typed same-process call input. The registry assigns its correlation token before policy begins.' }],
         returns: 'the materialized final result.',
+      },
+    ],
+  },
+  {
+    key: 'toolSearch',
+    summary: 'Deferred tool registry and the ToolSearch tool.',
+    description: 'Deferred tool registry and the ToolSearch tool.\n\nDeferred registrations are host-plane effects: they land in the calling context\'s scope layer and unwind with it. The tool itself (registered on the `tools` row) lets a model search the deferred set and load a hit — gated by the calling agent\'s tool restriction, so a deferred tool a scope denies is never loaded for it.',
+    methods: [
+      {
+        signature: 'registerDeferred(reg: DeferredToolRegistration): () => void',
+        description: 'Register a deferred capability. The name+description (+hint) are searchable but invisible until activated; an DeferredToolRegistration.alwaysLoad tool activates immediately for everyone. Registration is an effect: the returned disposer removes the deferred entry and, if it was activated, its real `ctx.tools` registration together.',
+        parameters: [{ name: 'reg', description: 'the deferred descriptor and activation callback.' }],
+        returns: 'the exact disposer that reclaims both the deferred entry and any loaded tool.',
+      },
+      {
+        signature: 'search(query: string, maxResults: number = 5): DeferredSearchHit[]',
+        description: 'Rank the deferred, not-yet-loaded tools against a query. Returns the top `maxResults` accessible candidates in descending relevance. This is the pure matching step; loading (and its restriction gate) happens in DeferredToolRegistry.activate.',
+        parameters: [{ name: 'query', description: 'free-text keyword query.' }, { name: 'maxResults', description: 'how many hits to return (default 5).' }],
+        returns: 'ranked, scored matches that are still deferred.',
+      },
+      {
+        signature: 'activate(name: string, scope?: ScopeKey): DeferredActivationResult',
+        description: 'Load one deferred tool for a scope, idempotently. A hit that the scope\'s tool restriction denies is NOT loaded (guard semantics take priority over ToolSearch, so the loading gate is not an end-run around `restrict()`); an already-loaded or `alwaysLoad` tool reports `already-loaded` without re-registering; an absent name reports `unknown`.',
+        parameters: [{ name: 'name', description: 'the deferred tool name.' }, { name: 'scope', description: 'the calling agent scope whose restriction gates the load.' }],
+        returns: 'the load outcome for the model-facing result.',
       },
     ],
   },
@@ -2922,6 +2990,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type CredentialRef = Branded<\'CredentialRef\'>;',
   },
   {
+    name: 'DeferredActivationResult',
+    declaration: 'export type DeferredActivationResult = {\n    readonly status: \'loaded\';\n    readonly name: string;\n} | {\n    readonly status: \'already-loaded\';\n    readonly name: string;\n} | {\n    readonly status: \'denied\';\n    readonly name: string;\n    readonly reason: string;\n} | {\n    readonly status: \'unknown\';\n    readonly name: string;\n};',
+  },
+  {
+    name: 'DeferredSearchHit',
+    declaration: 'export interface DeferredSearchHit {\n    readonly name: string;\n    readonly description: string;\n    readonly searchHint?: string;\n}',
+  },
+  {
+    name: 'DeferredToolRegistration',
+    declaration: 'export interface DeferredToolRegistration {\n    readonly name: string;\n    readonly description: string;\n    readonly searchHint?: string;\n    readonly alwaysLoad?: boolean;\n    readonly activate: () => () => void;\n}',
+  },
+  {
     name: 'DiffCallView',
     declaration: 'export interface DiffCallView {\n    card: \'diff\';\n    title: string;\n    diffs: FileDiff[];\n    locations?: FileLocation[];\n}',
   },
@@ -3452,6 +3532,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MessageSourceMap',
     declaration: 'export interface MessageSourceMap {\n    user: {\n        kind: \'user\';\n    };\n    plugin: {\n        kind: \'plugin\';\n        plugin: string;\n    } & ContextFormed;\n    model: ModelMessageSource;\n    tool: ToolMessageSource;\n}',
+  },
+  {
+    name: 'MicrocompactEntry',
+    declaration: 'export interface MicrocompactEntry {\n    readonly originalSeq: number;\n    readonly replacementSeq: number;\n    readonly callId: CallId;\n    readonly spillLocator?: string;\n}',
+  },
+  {
+    name: 'MicrocompactResult',
+    declaration: 'export interface MicrocompactResult {\n    readonly replaced: readonly MicrocompactEntry[];\n    readonly stable: boolean;\n}',
   },
   {
     name: 'ModelMessageSource',
@@ -4414,10 +4502,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ToolProviderResult {\n    readonly schemas: readonly ToolSchema[];\n    readonly knownNames?: readonly string[];\n}',
   },
   {
-    name: 'ToolRestriction',
-    declaration: 'export interface ToolRestriction {\n    readonly allow?: readonly string[];\n    readonly deny?: readonly string[];\n}',
-  },
-  {
     name: 'ToolResult',
     declaration: 'export interface ToolResult {\n    content: ContentBlock[];\n    isError: boolean;\n    meta?: JsonValue;\n}',
   },
@@ -4439,7 +4523,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolRuntime',
-    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
+    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    reserve(name: string): () => void;\n    isAdmitted(name: string, scope?: ScopeKey): boolean;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
   },
   {
     name: 'ToolRuntimeScheduler',

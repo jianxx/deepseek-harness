@@ -25,6 +25,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-str-replace-editor` | `str_replace_editor` | `ctx.tools`, `ctx.fs` | `tool/call`, `fs/observed after view presence/absence, edit absence, or successful mutation`, `tool/result` | - | Standalone view/create/unique literal replace/line insert tool over the filesystem seam; it composes with any shell or terminal API. |
 | `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `read_image`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt`, `ctx.attachments (read_image registration)`, `ctx.llm + an image-capable route (read_image execution)` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after read presence/absence or successful file operation`, `durable attachment (read_image)`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. `read_image` is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input. |
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.subprocess`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background jobs) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
+| `@deepseek-ai/dsh-tool-git-worktree` | `EnterWorktree`, `ExitWorktree` | `ctx.tools`, `ctx.shell`, `ctx.systemPrompt`, `ctx.fs` | `tool/call`, `tool/result` | - | EnterWorktree/ExitWorktree run real `git worktree` commands through the ctx.shell seam and gate the worktree path through ctx.fs containment; the tools manage session state (cwd/branch) but log no session events beyond the standard tool/call and tool/result pair. |
 | `@deepseek-ai/dsh-tool-terminal` | `terminal_close`, `terminal_list`, `terminal_open`, `terminal_read`, `terminal_send`, `terminal_signal` | `ctx.tools`, `ctx.terminals`, `ctx.systemPrompt`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The six terminal tools are opt-in and complement one-shot shell/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.jobs`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema. |
 | `@deepseek-ai/dsh-tool-goal` | `create_goal`, `get_goal`, `update_goal` | `ctx.tools`, `ctx.agents`, `ctx.goals`, `ctx.systemPrompt`, `a calling Agent in an authorized open turn` | `tool/call`, `goal/change for mutations`, `tool/result` | - | create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds. |
 | `@deepseek-ai/dsh-schedule` | `schedule_create`, `schedule_delete`, `schedule_list` | `ctx.tools`, `ctx.sessions`, `Session persistence`, `a future live root Agent` | `tool/call`, `schedule/change create or delete`, `tool/result` | - | Registered only inside live root Agent scopes created after the opt-in Schedule plugin loads. Version 1 accepts after_seconds, explicit absolute at, and bounded fixed-rate every_seconds, and discloses session-local delivery; management reads and mutations require the shared Session persistence barrier. |
@@ -773,6 +774,56 @@ Search file contents with a ripgrep regular expression. Returns matching lines w
 Source: [`packages/fs/tool-fs-search/src/index.ts`](../packages/fs/tool-fs-search/src/index.ts)
 
 glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background jobs) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments.
+
+<a id="deepseek-aidsh-tool-git-worktree"></a>
+
+## `@deepseek-ai/dsh-tool-git-worktree`
+
+### `EnterWorktree`
+
+Creates an isolated git worktree under <repo>/.claude/worktrees/ and switches the session into it. Run an uncommitted or speculative change in the worktree without touching the main working tree. Because the session working directory is fixed at creation, subsequent shell and fs calls should pass `workdir` equal to the reported worktreePath to operate inside it; the runtime context and this result both declare the current working directory. This tool is NOT concurrency-safe and must not overlap other tools. Only call it when the user explicitly asks to work in a worktree.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Optional name for the worktree. Each \"/\"-separated segment may contain only letters, digits, dots, underscores, and dashes; max 64 chars total. A random name is generated if not provided."
+    }
+  }
+}
+```
+
+Source: [`packages/workspace/tool-git-worktree/src/index.ts`](../packages/workspace/tool-git-worktree/src/index.ts)
+
+### `ExitWorktree`
+
+Leaves a worktree session created by EnterWorktree and returns the session to its original directory. This tool ONLY operates on worktrees created by EnterWorktree in this session; it never touches manually-created worktrees or worktrees from a previous session, and is a no-op when EnterWorktree was never called. action "remove" deletes the worktree directory AND its branch (DESTRUCTIVE, permanent): it refuses unless discard_changes is true when the worktree has uncommitted files or new commits, and lists the evidence otherwise. action "keep" leaves the worktree and branch on disk untouched. This tool is NOT concurrency-safe and must not overlap other tools.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "description": "\"keep\" leaves the worktree and branch intact on disk; \"remove\" deletes both (destructive).",
+      "enum": [
+        "keep",
+        "remove"
+      ]
+    },
+    "discard_changes": {
+      "type": "boolean",
+      "description": "Required true when action is \"remove\" and the worktree has uncommitted files or unmerged commits. The tool refuses and lists them otherwise."
+    }
+  }
+}
+```
+
+Source: [`packages/workspace/tool-git-worktree/src/index.ts`](../packages/workspace/tool-git-worktree/src/index.ts)
+
+EnterWorktree/ExitWorktree run real `git worktree` commands through the ctx.shell seam and gate the worktree path through ctx.fs containment; the tools manage session state (cwd/branch) but log no session events beyond the standard tool/call and tool/result pair.
 
 <a id="deepseek-aidsh-tool-terminal"></a>
 
