@@ -194,6 +194,32 @@ Types: [CommandId](commands.md)
 
 Source: [`packages/compaction/compaction/src/index.ts:96`](../../packages/compaction/compaction/src/index.ts)
 
+<a id="ctxmicrocompactor--microcompactor"></a>
+
+### `ctx.microcompactor` — `Microcompactor`
+
+Model-free retention-window microcompaction service. Keeps the most recent MicrocompactConfig.retainResults tool results verbatim and replaces every older one with a deterministic placeholder that reuses the original spill locator when one was cited. Each replacement preserves the complete event data except for `content`, cites the shadowed node for replay, and is immediately preceded by a `compaction/prune` shadow-price event pricing the shadowed node through the injected token meter — mirroring the sibling `ToolResultPruner` shadow-price protocol.
+
+```ts cordis-catalog
+/**
+ * Collapse every out-of-window tool result from one stable current-surface
+ * snapshot. The most recent `retainResults` tool results are kept verbatim;
+ * each older result that is not already a placeholder is replaced by a
+ * deterministic placeholder (reusing the original's spill locator when one is
+ * cited). Already-collapsed results are never re-decided, so a repeated pass
+ * over unchanged history emits a byte-identical prompt (freeze semantics).
+ * @param session - session whose current surface is rewritten.
+ * @returns landed placeholder replacements and a stability flag.
+ * @throws when the session rejects a replacement; replacements committed
+ * earlier in the pass remain durable.
+ */
+microcompactSession(session: Session): MicrocompactResult
+```
+
+Types: [Session](session.md)
+
+Source: [`packages/compaction/compaction-micro/src/index.ts:69`](../../packages/compaction/compaction-micro/src/index.ts)
+
 <a id="ctxtoolresultpruner--toolresultpruner"></a>
 
 ### `ctx.toolResultPruner` — `ToolResultPruner`

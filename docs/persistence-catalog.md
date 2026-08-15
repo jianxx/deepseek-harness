@@ -292,7 +292,39 @@ Source: [`packages/interaction/commands/src/types.ts:88`](../packages/interactio
 'compaction/end': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null; error?: string }
 ```
 
-Source: [`packages/compaction/compaction/src/types.ts:71`](../packages/compaction/compaction/src/types.ts)
+Source: [`packages/compaction/compaction/src/types.ts:72`](../packages/compaction/compaction/src/types.ts)
+
+<a id="compactionmicrocompact--log-only"></a>
+
+#### `compaction/microcompact` — log-only
+
+```ts persistence-catalog
+/**
+ * Decision record for one model-free microcompact replacement — log-only,
+ * no surfaceOp. Because the replacement `tool/result` node already carries
+ * the deterministic marker verbatim, the decision is reconstructable from
+ * replay + code alone; this event additionally records the durable decision
+ * metadata (which original node each replacement cites, its call, and any
+ * re-embedded spill locator) so a pure consumer can reconstruct the window
+ * and freeze policy without scraping marker text. Extends the compaction
+ * vocabulary while staying backward compatible: older consumers that do not
+ * know this key ignore it as an unknown log-only event.
+ */
+'compaction/microcompact': {
+  /** Surface seq of the full-fidelity tool result shadowed by the replacement. */
+  originalSeq: number
+  /** Surface seq of the newly appended placeholder tool result. */
+  replacementSeq: number
+  /** Tool call shared by the original and its placeholder replacement. */
+  callId: CallId
+  /** Spill locator re-embedded into the placeholder, when the original cited one. */
+  spillLocator?: string
+}
+```
+
+Types: [CallId](subsystems/core.md)
+
+Source: [`packages/compaction/compaction/src/types.ts:101`](../packages/compaction/compaction/src/types.ts)
 
 <a id="compactionprune--log-only"></a>
 
@@ -318,7 +350,7 @@ Source: [`packages/compaction/compaction/src/types.ts:71`](../packages/compactio
 }
 ```
 
-Source: [`packages/compaction/compaction/src/types.ts:81`](../packages/compaction/compaction/src/types.ts)
+Source: [`packages/compaction/compaction/src/types.ts:82`](../packages/compaction/compaction/src/types.ts)
 
 <a id="compactionstart--log-only"></a>
 
@@ -333,7 +365,7 @@ Source: [`packages/compaction/compaction/src/types.ts:81`](../packages/compactio
 'compaction/start': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null }
 ```
 
-Source: [`packages/compaction/compaction/src/types.ts:23`](../packages/compaction/compaction/src/types.ts)
+Source: [`packages/compaction/compaction/src/types.ts:24`](../packages/compaction/compaction/src/types.ts)
 
 <a id="compactionsummary--log-only"></a>
 
@@ -387,7 +419,7 @@ Source: [`packages/compaction/compaction/src/types.ts:23`](../packages/compactio
 
 Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streaming.md)
 
-Source: [`packages/compaction/compaction/src/types.ts:33`](../packages/compaction/compaction/src/types.ts)
+Source: [`packages/compaction/compaction/src/types.ts:34`](../packages/compaction/compaction/src/types.ts)
 
 ### `feedback/*`
 
@@ -495,6 +527,21 @@ Source: [`packages/llm/llm-retry/src/types.ts:9`](../packages/llm/llm-retry/src/
 Source: [`packages/llm/llm-retry/src/types.ts:11`](../packages/llm/llm-retry/src/types.ts)
 
 ### `permission/*`
+
+<a id="permissionmode--log-only"></a>
+
+#### `permission/mode` — log-only
+
+```ts persistence-catalog
+/**
+ * The session's permission mode was switched — log-only, durable, not in
+ * the model transcript. The last such event is the session's mode; plan
+ * activation (from `@deepseek-ai/dsh-plan-mode`) overlays at call time.
+ */
+'permission/mode': { mode: PermissionMode }
+```
+
+Source: [`packages/interaction/permission-rules/src/index.ts:51`](../packages/interaction/permission-rules/src/index.ts)
 
 <a id="permissionpreset--log-only"></a>
 

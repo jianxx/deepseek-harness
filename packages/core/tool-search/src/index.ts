@@ -200,7 +200,7 @@ export class DeferredToolRegistry extends Service {
    * @param maxResults - how many hits to return (default 5).
    * @returns ranked, scored matches that are still deferred.
    */
-  search(query: string, maxResults = 5): DeferredSearchHit[] {
+  search(query: string, maxResults: number = 5): DeferredSearchHit[] {
     const candidates: Array<{ stored: StoredDeferred; score: number }> = []
     for (const stored of this.allDeferred()) {
       if (stored.alwaysLoad || stored.activated) continue

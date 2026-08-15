@@ -128,4 +128,24 @@ set(session: Session, name: string): void
 Types: [Session](session.md) · [SessionEvent](session.md)
 
 Source: [`packages/interaction/permission-presets/src/index.ts:159`](../../packages/interaction/permission-presets/src/index.ts)
+
+<a id="ctxpermissionrules--permissionrulesservice"></a>
+
+### `ctx.permissionRules` — `PermissionRulesService`
+
+The engine's Service Definition plus the mode/rule write and read surface.
+
+```ts cordis-catalog
+/**
+ * Record a session's permission-mode override. Plan activation, when active,
+ * still overlays at call time.
+ * @param agent - the live agent whose mode is changing.
+ * @param mode - the new permission mode; unknown modes throw.
+ */
+setMode(agent: Agent, mode: PermissionMode): void
+```
+
+Types: [Agent](core.md)
+
+Source: [`packages/interaction/permission-rules/src/index.ts:161`](../../packages/interaction/permission-rules/src/index.ts)
 <!-- END GENERATED cordis-surface -->
