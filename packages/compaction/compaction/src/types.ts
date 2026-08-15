@@ -8,6 +8,7 @@
  */
 
 import type { ContentBlock, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { CompactionId } from './brand.ts'
 
@@ -85,6 +86,27 @@ declare module '@deepseek-ai/dsh-session/types' {
       shadowedSeqs: number[]
       /** Heuristic price of the shadowed content under the token-meter's fixed estimator. */
       shadowedTokenCount: number
+    }
+    /**
+     * Decision record for one model-free microcompact replacement — log-only,
+     * no surfaceOp. Because the replacement `tool/result` node already carries
+     * the deterministic marker verbatim, the decision is reconstructable from
+     * replay + code alone; this event additionally records the durable decision
+     * metadata (which original node each replacement cites, its call, and any
+     * re-embedded spill locator) so a pure consumer can reconstruct the window
+     * and freeze policy without scraping marker text. Extends the compaction
+     * vocabulary while staying backward compatible: older consumers that do not
+     * know this key ignore it as an unknown log-only event.
+     */
+    'compaction/microcompact': {
+      /** Surface seq of the full-fidelity tool result shadowed by the replacement. */
+      originalSeq: number
+      /** Surface seq of the newly appended placeholder tool result. */
+      replacementSeq: number
+      /** Tool call shared by the original and its placeholder replacement. */
+      callId: CallId
+      /** Spill locator re-embedded into the placeholder, when the original cited one. */
+      spillLocator?: string
     }
   }
 }
