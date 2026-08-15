@@ -51,13 +51,13 @@ function startMockHttpServer(handler: (req: { url?: string; body: string }) => {
     req.on('data', (c) => { body += c })
     req.on('end', () => {
       requests.push({ method: req.method, url: req.url, body })
-      const { status, body: resp } = handler({ url: req.url, body })
+      const { status, body: resp } = handler(req.url === undefined ? { body } : { url: req.url, body })
       res.statusCode = status
       res.setHeader('Content-Type', 'application/json')
       res.end(resp)
     })
   })
-  const close = (): void => server.close()
+  const close = (): void => { server.close() }
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => resolve({ port: (server.address() as AddressInfo).port, close, requests }))
   })
