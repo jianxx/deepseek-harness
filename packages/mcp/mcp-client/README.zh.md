@@ -27,6 +27,15 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
     url: http://localhost:3000/mcp
     headers:
       Authorization: !!js '`Bearer ${process.env.MCP_TOKEN}`'
+
+- id: mcp-feed
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: feed
+    transport: sse
+    url: http://localhost:3001/sse
+    oauth:
+      redirectUrl: http://localhost:8787/callback
 ```
 
 模型会看到 `mcp__github__create_issue`、`mcp__web__search` 等工具，这与 Claude Code 和 Codex 使用的服务器限定形状相同。HMR（热模块替换）支持热替换：编辑配置项会触发断开 + 重新连接，无需重启进程；`serverName` 不变时会生成完全相同的工具名称。
@@ -35,7 +44,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 | 字段 | 传输 | 必填 | 描述 |
 |---|---|---|---|
-| `transport` | 两者 | 是 | `"stdio"` 或 `"streamable-http"` |
+| `transport` | 两者 | 是 | `"stdio"`、`"streamable-http"` 或 `"sse"` |
 | `serverName` | 两者 | 是 | 该服务器面向模型工具名称的 namespace；`[A-Za-z0-9_-]{1,32}`，在存活实例中唯一 |
 | `command` | stdio | 是 | 要 spawn 的可执行文件 |
 | `args` | stdio | 否 | 传给命令的参数 |
@@ -43,6 +52,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 | `cwd` | stdio | 否 | 子进程工作目录 |
 | `url` | http | 是 | MCP 服务器 URL |
 | `headers` | http | 否 | 额外标头（例如认证 token） |
+| `oauth` | http | 否 | OAuth 流程选项（见下文） |
 | `toolCallTimeoutMs` | 两者 | 否 | 每次 `callTool` 调用的超时（默认 60000） |
 | `failOnStartupError` | 两者 | 否 | 初始连接或工具同步失败时拒绝插件激活（默认 `false`） |
 | `reconnect.enabled` | 两者 | 否 | 连接丢失后自动重新连接（默认 `true`） |
@@ -74,7 +84,20 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 | 服务 | 用途 |
 |---|---|
-| `ctx.tools` | 注册／注销 MCP 工具 |
+| `ctx.tools` | 注册／注销 MCP 工具及资源桥 |
+| `ctx.skills` | 可选：注册 MCP 提示词技能 |
+| `ctx.credentials` | 可选：持久化 OAuth token 及相关状态 |
+
+## 能力
+
+除工具外，当服务器声明其他 MCP 能力时，桥也会将其暴露出来：
+
+- **资源（Resources）**——以两个服务器限定的模型工具 `mcp__<serverName>__list_mcp_resources` 与 `mcp__<serverName>__read_mcp_resource` 暴露，分别调用 `resources/list` 与 `resources/read`。`ctx.fs` seam（针对真实文件系统的抽象，基于 `FsTarget`/`readBytes`）无法表达虚拟 MCP 资源，因此这两个桥接工具正是能力 seam 规定的回退方案。资源列表变更通知会重新注册桥。
+- **提示词（Prompts）**——当声明提示词能力时，每个 MCP 提示词都会作为技能注册到 `ctx.skills`。技能名把 `mcp__<server>__<prompt>` 形状映射到注册表的 lowercase-kebab 语法（`mcp-<server>-<prompt>`）。无参数提示词通过 `prompts/get` 解析，其渲染文本成为技能正文；需要参数的提示词则以参数约定作为文档。MCP 来源的技能是惰性纯文本——绝不包含可执行的 shell。提示词列表变更通知会重新注册技能。提示词桥需要 `ctx.skills` 服务；缺失时该桥为空操作。
+- **OAuth**——网络传输（`streamable-http`、`sse`）接受 `oauth` 配置块。token、已注册客户端信息、PKCE code verifier 与发现状态通过 `ctx.credentials` 引用 seam 持久化（存储在派生的凭据引用下，绝不内联）。MCP SDK 通过 provider 驱动 RFC 9728 → RFC 8414 元数据发现、动态客户端注册、授权码 PKCE 与 token 刷新；会话中途的 `401` 会在丢弃过期 token 状态后重试一次。OAuth 需要 `ctx.credentials` 服务。
+
+supervisor 在中断期间保持每个能力的注册存活（保留最后一个正常世代），并在放弃或 dispose 时移除，全部经由一条串行化的交换链。
+
 
 ## 模型体验
 
@@ -108,8 +131,9 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 ## 已知限制与暂缓事项
 
-- **只桥接 MCP 的工具能力**：资源和提示词没有 harness 消费接口，暂缓实现。
+- **动态 OAuth 客户端注册委托给 MCP SDK**：SDK 负责 RFC 9728/8414 元数据发现、PKCE、动态客户端注册与 token 刷新；本包只提供基于凭据的 `OAuthClientProvider` seam 持久化半边与单次 401 重试。交互式 `redirectToAuthorization` 在 headless 主机上只记录 URL 而不会驱动浏览器；完成流程仍需操作者介入。
 - **启动超时继承自 MCP SDK**：DSH 尚未公开连接／发现超时。每次 initialize 请求或分页 `tools/list` 请求都使用 SDK 默认的 60 秒，因此在初始同步完成期间，无响应的 server 或 cursor chain 可能同时延迟激活与 teardown。
 - **重连在传输关闭时触发**：崩溃的 stdio 子进程会触发重连；Streamable HTTP 失败通过每次请求以及 SDK 传输自身的 SSE（Server-Sent Events）流恢复机制暴露，因此不可达的 HTTP 服务器会按调用重试，而非由 supervisor 重新 spawn。
 - **Native 非文本渲染有损**：图片、音频与资源载荷在模型上下文中会变成占位符，即使执行局部的规范值保留了其 JSON 块。更丰富的 Native 多媒体投影暂缓实现。
 - **不强制执行不受支持的 MCP 输出 schema**：已声明 schema 使用 harness 子集之外的词汇时，`structuredContent` 会回退到 `JsonValue`。
+- **资源桥使用两个工具的回退方案，而非文件系统 provider**：`ctx.fs` seam 无法表达虚拟 MCP 资源；当前表面是 ListMcpResources/ReadMcpResource 两个模型工具。
