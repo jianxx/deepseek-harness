@@ -7,6 +7,7 @@
 | 包 | 职责 | ctx 键 |
 |---|---|---|
 | [`workspace/`](workspace/README.md) | 注册 workspace 并记录其会话归属 | `ctx.workspaceRegistry` |
+| [`tool-git-worktree/`](tool-git-worktree/README.md) | 基于 shell seam 的 `EnterWorktree` / `ExitWorktree` git-worktree 隔离 | 工具（无 ctx 键） |
 
 [workspace 包参考](workspace/README.md)负责生命周期、持久化和删除语义。
 
