@@ -27,6 +27,8 @@ import {
   matchesMatcher,
   mergeHookOutputs,
   runHook,
+  runHttpHook,
+  type HookCommand,
   type HookOutput,
   type MatcherGroup,
   type MergedHookOutcome,
@@ -67,6 +69,14 @@ export interface Config {
   defaultTimeoutMs?: number
   /** Character cap for the `hook/result` event's persisted stderr summary. */
   stderrSummaryMaxChars?: number
+  /**
+   * URL-pattern allowlist (`*` wildcard) enforced before any `http` hook POST.
+   * Absent/empty (the schemastery default) is unrestricted — the safe default
+   * that cannot silently block http hooks; non-empty restricts to matching URLs.
+   */
+  allowedHttpHookUrls?: string[]
+  /** Env-var names allowed to interpolate into `http` hook header values. */
+  httpAllowedEnvVars?: string[]
 }
 
 export const Config: z<Config> = z.object({
@@ -75,6 +85,8 @@ export const Config: z<Config> = z.object({
   projectDir: z.string(),
   defaultTimeoutMs: z.number().default(DEFAULT_HOOK_TIMEOUT_MS),
   stderrSummaryMaxChars: z.number().default(DEFAULT_STDERR_SUMMARY_MAX_CHARS),
+  allowedHttpHookUrls: z.array(z.string()),
+  httpAllowedEnvVars: z.array(z.string()),
 })
 
 /** A stable per-handler id so an invoked/result pair correlates in the log. */
@@ -108,7 +120,7 @@ export function apply(ctx: Context, config: Config): void {
     })
     parsed = result.config
     for (const s of result.skipped) {
-      ctx.logger.warn(`hooks-claude-code: skipping unsupported "${s.type}" hook on ${s.event} (only command hooks run)`)
+      ctx.logger.warn(`hooks-claude-code: skipping unsupported "${s.type}" hook on ${s.event} (unknown hook type)`)
     }
   } catch (error: unknown) {
     ctx.logger.warn(`hooks-claude-code: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
@@ -126,7 +138,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => () => detached.drain(), 'hooks-claude-code: drain detached hook runs')
 
   /**
-   * Run every command hook configured for `point` whose matcher selects
+   * Run every hook configured for `point` whose matcher selects
    * `matchQuery`, with the per-event `payload` on stdin, and fold the results.
    * Writes a `hook/invoked`/`hook/result` pair per hook when `opts.turn` names
    * an open turn. Detached lifecycle points omit the pair. Returns the merged outcome (a neutral,
@@ -160,17 +172,18 @@ export function apply(ctx: Context, config: Config): void {
             ...group.matcher !== undefined ? { matcher: group.matcher } : {},
           })
         }
-        const { output, durationMs } = await runHook(ctx.shell, hook, {
+        const { output, durationMs } = await dispatchHook(ctx, hook, {
           payload,
           defaultTimeoutMs,
-          ...hookEnv ? { env: hookEnv } : {},
-          ...workdir !== undefined ? { cwd: workdir } : {},
+          env: hookEnv,
+          cwd: workdir,
           signal: opts.signal,
-          trailingNewline: true,
           // Discard a `hookSpecificOutput` block whose `hookEventName` names a
           // different event than the one firing (the schemas key it by event).
           expectedEventName: point,
-        }, () => performance.now())
+          allowedHttpHookUrls: config.allowedHttpHookUrls,
+          httpAllowedEnvVars: httpAllowedEnvVars(),
+        })
         outputs.push(output)
         if (output.updatedInput !== undefined) {
           ctx.logger.warn(`hooks-claude-code: ${point} hook requested updatedInput, which is not yet honored (ignored)`)
@@ -185,6 +198,11 @@ export function apply(ctx: Context, config: Config): void {
     }
     return mergeHookOutputs(outputs)
   }
+
+  // The http-hook header interpolation policy: the effective allowlist is the
+  // configured names resolved once (a deployment's fixed allowlist, not a
+  // per-run knob).
+  const httpAllowedEnvVars = (): ReadonlySet<string> => new Set(config.httpAllowedEnvVars ?? [])
 
   // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt mechanism.
 
@@ -302,6 +320,66 @@ export function apply(ctx: Context, config: Config): void {
  * fires; a config matching a specific kind (e.g. `code-reviewer`) does not.
  */
 const SUBAGENT_TYPE = 'general-purpose'
+
+/** Everything {@link dispatchHook} needs beyond the hook itself. */
+interface DispatchOptions {
+  payload: unknown
+  defaultTimeoutMs: number
+  /** Extra env vars for a `command` hook (`CLAUDE_PROJECT_DIR`, …). */
+  env?: Record<string, string>
+  /** Working directory for a `command` hook. */
+  cwd?: string
+  /** Explicit owning-operation signal. */
+  signal: AbortSignal
+  /** Firing event used to guard per-event structured fields. */
+  expectedEventName: string
+  /** URL-pattern allowlist for `http` hooks (undefined = unrestricted). */
+  allowedHttpHookUrls?: string[]
+  /** Env-var names allowed to interpolate into `http` header values. */
+  httpAllowedEnvVars: ReadonlySet<string>
+}
+
+/**
+ * Run one configured hook of any executor kind and decode its neutral outcome.
+ * `command` runs through {@link runHook} (the shell executor); `http` runs
+ * through {@link runHttpHook} (a POST with allowlisted header interpolation).
+ * `prompt` and `agent` executors are parsed but not yet run — a hook of those
+ * kinds is surfaced as a warned no-op, so a config may carry them without
+ * crashing the bridge (the graceful-degradation stance for unfinished executor
+ * bindings).
+ * @param ctx - the plug context (for logging the unsupported-kind warning).
+ * @param hook - the configured hook of any kind.
+ * @param opts - payload, timeouts, env/cwd, signal, event, and the http policy.
+ * @returns the decoded output plus the run's wall-clock duration.
+ */
+async function dispatchHook(ctx: Context, hook: HookCommand, opts: DispatchOptions): Promise<{ output: HookOutput; durationMs: number }> {
+  const now = (): number => performance.now()
+  const started = now()
+  if (hook.type === 'http') {
+    return runHttpHook(hook, {
+      payload: opts.payload,
+      allowedEnvVars: opts.httpAllowedEnvVars,
+      allowedHttpHookUrls: opts.allowedHttpHookUrls,
+      defaultTimeoutMs: opts.defaultTimeoutMs,
+      signal: opts.signal,
+      expectedEventName: opts.expectedEventName,
+      now,
+    })
+  }
+  if (hook.type === 'prompt' || hook.type === 'agent') {
+    ctx.logger.warn(`hooks-claude-code: ${opts.expectedEventName} ${hook.type} hook is parsed but not yet run (no-op)`)
+    return { output: { exitCode: undefined, stderr: '', stdout: '' }, durationMs: now() - started }
+  }
+  return runHook(ctx.shell, hook, {
+    payload: opts.payload,
+    defaultTimeoutMs: opts.defaultTimeoutMs,
+    ...opts.env !== undefined ? { env: opts.env } : {},
+    ...opts.cwd !== undefined ? { cwd: opts.cwd } : {},
+    signal: opts.signal,
+    trailingNewline: true,
+    expectedEventName: opts.expectedEventName,
+  }, now)
+}
 
 // --- Per-event stdin payloads (the CC DIALECT shape). Field names match CC's
 // hook input schema; this is the part a bridge owns. ---

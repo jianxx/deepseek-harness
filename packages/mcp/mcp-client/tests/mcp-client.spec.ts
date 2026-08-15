@@ -798,6 +798,34 @@ describe('createTransport', () => {
     const transport = createTransport(config)
     expect(transport).toBeDefined()
   })
+
+  it('creates an SSEClientTransport for sse config', () => {
+    const config: Config = {
+      transport: 'sse',
+      serverName: 'srv',
+      url: 'http://localhost:3000/sse',
+      headers: {},
+      toolCallTimeoutMs: 60_000,
+      failOnStartupError: false,
+    }
+    const transport = createTransport(config)
+    expect(transport).toBeDefined()
+    expect(transport).toHaveProperty('start')
+    expect(transport).toHaveProperty('close')
+  })
+
+  it('throws when an oauth config is given without a credentials context', () => {
+    const config: Config = {
+      transport: 'sse',
+      serverName: 'srv',
+      url: 'http://localhost:3000/sse',
+      headers: {},
+      oauth: {},
+      toolCallTimeoutMs: 60_000,
+      failOnStartupError: false,
+    }
+    expect(() => createTransport(config)).toThrow(/credentials service/)
+  })
 })
 
 describe('tool execution — non-object args fallback', () => {

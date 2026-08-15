@@ -1,8 +1,9 @@
 /**
  * Connection supervisor: owns the MCP client/transport generations for one
- * plugin instance, keeps the harness tool registry in sync with the live
- * generation, and — when the connection drops — restarts the configured
- * server with bounded exponential backoff.
+ * plugin instance, keeps the harness registries (tools, resources-as-tools,
+ * and prompt-skills) in sync with the live generation, and — when the
+ * connection drops — restarts the configured server with bounded exponential
+ * backoff.
  *
  * One outage shares one attempt budget (`maxAttempts` consecutive failed
  * attempts, delays doubling from `initialDelayMs` up to `maxDelayMs`). A
@@ -12,16 +13,31 @@
  * restarting forever. Exhaustion unregisters the server's tools and stops;
  * disposal (including HMR) is the only way back from that state.
  *
+ * Capability branching follows the server's declared `ServerCapabilities`:
+ * `tools`, `resources`, and `prompts` each contribute a disposer map that is
+ * kept live across an outage (last-good wins) and removed on give-up or
+ * disposal. Every swap runs on one serialized chain so generations can never
+ * interleave a dispose-previous/register-next swap.
+ *
  * @module
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
+import {
+  PromptListChangedNotificationSchema,
+  ResourceListChangedNotificationSchema,
+  ToolListChangedNotificationSchema,
+} from '@modelcontextprotocol/sdk/types.js'
 import type { Context } from '@deepseek-ai/cordis'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { createTransport } from './transport.ts'
+import { createTransport, buildAuthProvider } from './transport.ts'
+import type { TransportContext } from './transport.ts'
 import { syncTools } from './tools.ts'
 import type { ToolBridgeOptions, ToolDisposers } from './tools.ts'
+import { syncResources } from './resources.ts'
+import type { ResourceDisposers } from './resources.ts'
+import { syncPrompts } from './prompts.ts'
+import type { PromptDisposers } from './prompts.ts'
 import type { Config } from './index.ts'
 
 /** Automatic reconnect policy for one MCP server connection. */
@@ -105,10 +121,23 @@ export interface ConnectionHandle {
   ready: Promise<ConnectionOutcome>
   /**
    * Stop reconnection, close the live client, wait for the in-flight attempt
-   * and queued tool syncs to quiesce, then unregister every tool this server
-   * still owns.
+   * and queued capability syncs to quiesce, then unregister every tool,
+   * resource bridge, and prompt skill this server still owns.
    */
   dispose(): Promise<void>
+}
+
+/** All registrations owned by one server generation, keyed by swap target. */
+interface GenerationRegistrations {
+  tools: ToolDisposers
+  resources: ResourceDisposers
+  prompts: PromptDisposers
+}
+
+/** Dispose one disposer map and clear it. */
+function clear(map: Map<string, () => void>): Map<string, () => void> {
+  for (const dispose of map.values()) dispose()
+  return new Map()
 }
 
 /**
@@ -122,10 +151,17 @@ export interface ConnectionHandle {
  */
 export function startConnection(ctx: Context, config: Config, policy: ResolvedReconnectPolicy): ConnectionHandle {
   const label = `mcp-client(${config.serverName})`
+  // OAuth provider shared by the transport and the 401-retry hook.
+  const authProvider = config.transport !== 'stdio' && config.oauth !== undefined
+    && ctx.get('credentials') !== undefined
+    ? buildAuthProvider(ctx, config.serverName, config.oauth)
+    : undefined
+  const transportCtx: TransportContext = { ctx, ...authProvider !== undefined ? { authProvider } : {} }
   const opts: ToolBridgeOptions = {
     registrationFailure: 'contain',
     serverName: config.serverName,
     toolCallTimeoutMs: config.toolCallTimeoutMs,
+    ...authProvider !== undefined ? { onUnauthorized: () => authProvider.invalidateCredentials('tokens') } : {},
   }
   // The initial sync uses 'throw' when failOnStartupError is configured, so
   // a registration conflict propagates to the startup-await path. Re-syncs
@@ -139,8 +175,8 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   let client: Client | undefined
   /** Close signal paired with {@link client}; captured by dispose before current ownership is cleared. */
   let clientClosed: Promise<void> | undefined
-  /** Live tool registrations owned by this server; only {@link enqueueSync} and dispose swap it. */
-  let disposers: ToolDisposers = new Map()
+  /** Live registrations owned by this server; each map is swapped by its own sync task or clear. */
+  let registrations: GenerationRegistrations = { tools: new Map(), resources: new Map(), prompts: new Map() }
   let reconnectTimer: NodeJS.Timeout | undefined
   /** Consecutive failed connection attempts within the current outage. */
   let failedAttempts = 0
@@ -153,20 +189,47 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   const isCurrent = (generation: Client): boolean => !disposed && client === generation
 
   /**
-   * Serializes every syncTools call — initial syncs and notification re-syncs
-   * across all generations — so two syncs can never interleave their
-   * dispose-previous/register-next swap (which would double-dispose one
-   * generation and leak another).
+   * Serializes every registration swap — tool syncs, resource registration,
+   * and prompt syncs, initial and notification-driven, across all generations —
+   * so two swaps can never interleave their dispose-previous/register-next
+   * phase (which would double-dispose one generation and leak another).
    */
   let syncChain: Promise<void> = Promise.resolve()
-  function enqueueSync(generation: Client, syncOpts: ToolBridgeOptions = opts): Promise<void> {
-    const run = syncChain.then(async () => {
-      if (!isCurrent(generation)) return
-      disposers = await syncTools(generation, ctx, syncOpts, disposers)
-    })
+  function enqueue(task: () => Promise<void> | void): Promise<void> {
+    const run = syncChain.then(task)
     // The chain tail must survive a failed sync; the enqueuing caller owns reporting.
     syncChain = run.catch(() => {})
     return run
+  }
+
+  /** Swap the tool generation on connect / tools-list-changed / reconnect. */
+  function syncToolGeneration(generation: Client, syncOpts: ToolBridgeOptions = opts): Promise<void> {
+    return enqueue(async () => {
+      if (!isCurrent(generation)) return
+      const next = await syncTools(generation, ctx, syncOpts, registrations.tools)
+      registrations = { ...registrations, tools: next }
+    })
+  }
+
+  /** Register the resource bridge once the server declares the capability. */
+  function syncResourceGeneration(generation: Client): Promise<void> {
+    return enqueue(() => {
+      if (!isCurrent(generation)) return
+      const next = syncResources(generation, ctx, config.serverName)
+      const old = registrations.resources
+      registrations = { ...registrations, resources: next }
+      for (const dispose of old.values()) dispose()
+    })
+  }
+
+  /** Sync prompt-skills once the server declares the capability. */
+  function syncPromptGeneration(generation: Client): Promise<void> {
+    return enqueue(async () => {
+      if (!isCurrent(generation)) return
+      const next = await syncPrompts(generation, ctx, config.serverName)
+      for (const dispose of registrations.prompts.values()) dispose()
+      registrations = { ...registrations, prompts: next }
+    })
   }
 
   /** One disconnect decision per generation: the isCurrent guard makes racing close/error signals idempotent. */
@@ -205,10 +268,13 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     failedAttempts += 1
     if (failedAttempts > policy.maxAttempts) {
       // Enqueue the give-up disposal so it cannot race an in-flight sync's
-      // phase-2 swap (which checks isCurrent inside the queue).
-      syncChain = syncChain.then(() => {
-        for (const dispose of disposers.values()) dispose()
-        disposers = new Map()
+      // swap (which checks isCurrent inside the queue).
+      void enqueue(() => {
+        registrations = {
+          tools: clear(registrations.tools),
+          resources: clear(registrations.resources),
+          prompts: clear(registrations.prompts),
+        }
       })
       ctx.logger.error(`${label}: giving up after ${policy.maxAttempts} consecutive failed reconnect attempts — tools unregistered; reload the plugin or restart the Host to reconnect`)
       return
@@ -226,11 +292,12 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
 
   /**
    * One connection attempt: fresh transport + client (the MCP SDK binds a
-   * Protocol to one transport for life), connect, then queue the initial tool
-   * sync. The startup flag belongs to the attempt rather than the shared sync
-   * queue, so an early notification cannot consume strict startup semantics.
-   * Every failure funnels through {@link generationDown}; success arms the
-   * onclose-driven disconnect path. Never rejects.
+   * Protocol to one transport for life), connect, then queue the capability
+   * syncs for the declared server capabilities. The startup flag belongs to the
+   * attempt rather than the shared sync queue, so an early notification cannot
+   * consume strict startup semantics. Every failure funnels through
+   * {@link generationDown}; success arms the onclose-driven disconnect path.
+   * Never rejects.
    *
    * @param startup - Whether this is the plugin's activation attempt.
    */
@@ -252,7 +319,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       // established generation can transition down directly from this signal.
       if (attemptSettled) generationDown(generation)
     }
-    // Registered before connect so a list change during the initial sync is
+    // Registered before connect so a list change during an initial sync is
     // queued behind it rather than dropped.
     generation.setNotificationHandler(
       ToolListChangedNotificationSchema,
@@ -260,22 +327,45 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         if (!isCurrent(generation)) return
         ctx.logger.info(`${label}: tool list changed, re-syncing`)
         try {
-          await enqueueSync(generation)
+          await syncToolGeneration(generation)
         } catch (error) {
           // Fetch-phase failure: the previous generation is still registered
-          // and `disposers` still owns it — keep serving the last good list.
+          // and `registrations.tools` still owns it — keep serving the last good list.
           if (!disposed) ctx.logger.error(`${label}: tool re-sync failed: ${String(error)}`)
         }
       },
     )
+    generation.setNotificationHandler(
+      ResourceListChangedNotificationSchema,
+      async () => {
+        if (!isCurrent(generation)) return
+        ctx.logger.info(`${label}: resource list changed, re-syncing resources`)
+        await syncResourceGeneration(generation)
+      },
+    )
+    generation.setNotificationHandler(
+      PromptListChangedNotificationSchema,
+      async () => {
+        if (!isCurrent(generation)) return
+        ctx.logger.info(`${label}: prompt list changed, re-syncing prompts`)
+        await syncPromptGeneration(generation)
+      },
+    )
     try {
-      await generation.connect(createTransport(config))
+      await generation.connect(createTransport(config, transportCtx))
       if (hasClosed()) {
         attemptSettled = true
         generationDown(generation)
         return
       }
-      await enqueueSync(generation, startup ? startupOpts : opts)
+      const caps = typeof generation.getServerCapabilities === 'function'
+        ? generation.getServerCapabilities()
+        : undefined
+      // Tools are bridged unconditionally (the long-standing behavior); only
+      // the optional resource and prompt bridges are capability-gated.
+      await syncToolGeneration(generation, startup ? startupOpts : opts)
+      if (caps?.resources !== undefined) await syncResourceGeneration(generation)
+      if (caps?.prompts !== undefined) await syncPromptGeneration(generation)
     } catch (error) {
       if (firstAttemptError === undefined) firstAttemptError = error
       // Disposal clears current ownership before it closes the generation, so
@@ -314,9 +404,6 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     // After settling: if client is set the initial connect+sync succeeded.
     // If not, the supervisor either scheduled a retry (error logged) or gave
     // up (error logged). Either way the outcome is reported with the real error.
-    // Note: settling.then() is a microtask; stdio onclose is a macrotask — so
-    // a server that crashes AFTER a successful initial sync cannot flip client
-    // to undefined before this continuation runs.
     if (client !== undefined) return {}
     /* v8 ignore next -- defensive: firstAttemptError is always set when connect/sync fails */
     return { error: firstAttemptError ?? new Error(`${label}: initial connection failed`) }
@@ -341,11 +428,14 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
         }
       }
       // Quiesce, don't just request it: the in-flight attempt enqueues its
-      // sync before settling, so awaiting both leaves `disposers` final.
+      // syncs before settling, so awaiting both leaves `registrations` final.
       await settling
       await syncChain
-      for (const dispose of disposers.values()) dispose()
-      disposers = new Map()
+      registrations = {
+        tools: clear(registrations.tools),
+        resources: clear(registrations.resources),
+        prompts: clear(registrations.prompts),
+      }
     },
   }
 }

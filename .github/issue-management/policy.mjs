@@ -6,6 +6,12 @@ import { pathToFileURL } from 'node:url'
 
 import config from './config.json' with { type: 'json' }
 
+// Environment overrides let a fork route policy at its own repository
+// without editing the checked-in config (e.g. ISSUE_REPO=jianxx/deepseek-harness).
+const [ENV_ORG, ENV_REPO] = (process.env.ISSUE_REPO ?? '').split('/')
+const ORG = ENV_ORG || config.organization
+const REPO = ENV_REPO || config.repository
+
 const API_VERSION = '2026-03-10'
 const BODY_LIMIT = 50
 const AUDIT_MARKER = '<!-- dsh-issue-policy -->'
@@ -416,10 +422,10 @@ async function graphql(query, variables) {
 }
 
 async function issueSnapshot(number, status = undefined) {
-  const issue = await api(`/repos/${config.organization}/${config.repository}/issues/${number}`)
+  const issue = await api(`/repos/${ORG}/${REPO}/issues/${number}`)
   if (issue.pull_request) return null
   const values = await api(
-    `/repos/${config.organization}/${config.repository}/issues/${number}/issue-field-values?per_page=100`,
+    `/repos/${ORG}/${REPO}/issues/${number}/issue-field-values?per_page=100`,
   )
   const field = (name) => values.find((value) => value.issue_field_name === name)
   return {
@@ -483,8 +489,8 @@ async function projectContext(number, includeStatusActor = false) {
       }
     }`,
     {
-      organization: config.organization,
-      repository: config.repository,
+      organization: ORG,
+      repository: REPO,
       number,
       project: config.projectNumber,
       includeStatusActor,
@@ -557,14 +563,14 @@ async function setStatus(number, status) {
 
 async function upsertAudit(number, errors) {
   const comments = await api(
-    `/repos/${config.organization}/${config.repository}/issues/${number}/comments?per_page=100`,
+    `/repos/${ORG}/${REPO}/issues/${number}/comments?per_page=100`,
   )
   const existing = comments.find(
     (comment) => comment.user?.type === 'Bot' && comment.body?.includes(AUDIT_MARKER),
   )
   if (errors.length === 0) {
     if (existing) {
-      await api(`/repos/${config.organization}/${config.repository}/issues/comments/${existing.id}`, {
+      await api(`/repos/${ORG}/${REPO}/issues/comments/${existing.id}`, {
         method: 'DELETE',
       })
     }
@@ -573,13 +579,13 @@ async function upsertAudit(number, errors) {
   const body = `${AUDIT_MARKER}\n⚠️ Issue policy 未通过：\n\n${errors.map((error) => `- ${error}`).join('\n')}`
   if (existing) {
     if (existing.body === body) return
-    await api(`/repos/${config.organization}/${config.repository}/issues/comments/${existing.id}`, {
+    await api(`/repos/${ORG}/${REPO}/issues/comments/${existing.id}`, {
       method: 'PATCH',
       body: JSON.stringify({ body }),
       headers: { 'Content-Type': 'application/json' },
     })
   } else {
-    await api(`/repos/${config.organization}/${config.repository}/issues/${number}/comments`, {
+    await api(`/repos/${ORG}/${REPO}/issues/${number}/comments`, {
       method: 'POST',
       body: JSON.stringify({ body }),
       headers: { 'Content-Type': 'application/json' },
@@ -598,7 +604,7 @@ async function auditIssue(number, extraErrors = [], status = undefined) {
 async function resolvingReferencesSnapshot(number, pull) {
   const references = parseReferences({
     body: pull.body ?? '',
-    repository: `${config.organization}/${config.repository}`,
+    repository: `${ORG}/${REPO}`,
   })
   const issues = new Map()
   for (const issueNumber of references.all) {
@@ -614,9 +620,9 @@ async function resolvingReferencesSnapshot(number, pull) {
 
 async function pullRequestSnapshot(number) {
   const [pull, reviewRequests, reviews] = await Promise.all([
-    api(`/repos/${config.organization}/${config.repository}/pulls/${number}`),
-    api(`/repos/${config.organization}/${config.repository}/pulls/${number}/requested_reviewers`),
-    api(`/repos/${config.organization}/${config.repository}/pulls/${number}/reviews?per_page=100`),
+    api(`/repos/${ORG}/${REPO}/pulls/${number}`),
+    api(`/repos/${ORG}/${REPO}/pulls/${number}/requested_reviewers`),
+    api(`/repos/${ORG}/${REPO}/pulls/${number}/reviews?per_page=100`),
   ])
   const resolving = await resolvingReferencesSnapshot(number, pull)
   return {
@@ -630,7 +636,7 @@ async function pullRequestSnapshot(number) {
 }
 
 async function lifecyclePullRequestSnapshot(number) {
-  const pull = await api(`/repos/${config.organization}/${config.repository}/pulls/${number}`)
+  const pull = await api(`/repos/${ORG}/${REPO}/pulls/${number}`)
   return resolvingReferencesSnapshot(number, pull)
 }
 
