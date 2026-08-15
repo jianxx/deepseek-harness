@@ -15,6 +15,7 @@
 import { createHash } from 'node:crypto'
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { z } from 'zod'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
@@ -27,6 +28,13 @@ export interface ToolBridgeOptions {
   registrationFailure: 'contain' | 'throw'
   serverName: string
   toolCallTimeoutMs: number
+  /**
+   * Called before a single mid-session 401 retry. The SDK auto-refreshes an
+   * expired token before a request; a mid-session `UnauthorizedError` means the
+   * token was revoked, so the provider drops the stored state and re-runs the
+   * token flow before the bridge retries the request once.
+   */
+  onUnauthorized?: () => Promise<void> | void
 }
 
 /** State for one sync generation: the current set of disposers keyed by public name. */
@@ -216,6 +224,32 @@ function createOutput(rawName: string, structuredSchema: JsonSchemaNode | undefi
 }
 
 /**
+ * Run an MCP request, retrying once on a mid-session `UnauthorizedError`.
+ * Between the original attempt and the retry, `onUnauthorized` runs to drop
+ * stale OAuth state and re-establish a token. Only a single retry is attempted
+ * (the spec's "401 自动重试一次"); a second failure propagates to the caller.
+ *
+ * @param request - the MCP request to attempt.
+ * @param onUnauthorized - re-auth hook run before the single retry.
+ * @returns the request result.
+ */
+export async function retryUnauthorizedOnce<T>(request: () => Promise<T>, onUnauthorized?: () => Promise<void> | void): Promise<T> {
+  try {
+    return await request()
+  } catch (error) {
+    if (!isUnauthorized(error) || onUnauthorized === undefined) throw error
+    await onUnauthorized()
+    return request()
+  }
+}
+
+/** Whether a thrown error signals an expired/revoked OAuth session. */
+export function isUnauthorized(error: unknown): boolean {
+  return error instanceof UnauthorizedError
+    || (error instanceof Error && /unauthorized/i.test(error.message))
+}
+
+/**
  * Create an execute function for one MCP tool. The executor closes over the
  * raw MCP tool name and sends an uncached `tools/call` request with it (never
  * the public name), with abort signal and timeout, then maps the result to
@@ -240,7 +274,10 @@ function createExecutor(
     // string/number/null). Fallback to {} lets the MCP server produce a
     // specific "missing required param" error the model can learn from.
     const argsObj = (typeof args === 'object' && args !== null ? args : {}) as Record<string, unknown>
-    const result = await callToolUncached(client, rawName, argsObj, exec, opts)
+    const result = await retryUnauthorizedOnce(
+      () => callToolUncached(client, rawName, argsObj, exec, opts),
+      opts.onUnauthorized,
+    )
 
     // The SDK may return a legacy `toolResult` shape; normalize to content array.
     if (!Array.isArray(result.content)) {
