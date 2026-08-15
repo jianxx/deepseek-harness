@@ -50,7 +50,10 @@ function startMockHttpServer(handler: (req: { url?: string; body: string }) => {
     let body = ''
     req.on('data', (c) => { body += c })
     req.on('end', () => {
-      requests.push({ method: req.method, url: req.url, body })
+      const entry: { method?: string; url?: string; body: string } = { body }
+      if (req.method !== undefined) entry.method = req.method
+      if (req.url !== undefined) entry.url = req.url
+      requests.push(entry)
       const { status, body: resp } = handler(req.url === undefined ? { body } : { url: req.url, body })
       res.statusCode = status
       res.setHeader('Content-Type', 'application/json')

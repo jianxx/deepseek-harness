@@ -175,13 +175,13 @@ export function apply(ctx: Context, config: Config): void {
         const { output, durationMs } = await dispatchHook(ctx, hook, {
           payload,
           defaultTimeoutMs,
-          env: hookEnv,
-          cwd: workdir,
+          ...hookEnv !== undefined ? { env: hookEnv } : {},
+          ...workdir !== undefined ? { cwd: workdir } : {},
           signal: opts.signal,
           // Discard a `hookSpecificOutput` block whose `hookEventName` names a
           // different event than the one firing (the schemas key it by event).
           expectedEventName: point,
-          allowedHttpHookUrls: config.allowedHttpHookUrls,
+          ...config.allowedHttpHookUrls !== undefined ? { allowedHttpHookUrls: config.allowedHttpHookUrls } : {},
           httpAllowedEnvVars: httpAllowedEnvVars(),
         })
         outputs.push(output)
@@ -359,7 +359,7 @@ async function dispatchHook(ctx: Context, hook: HookCommand, opts: DispatchOptio
     return runHttpHook(hook, {
       payload: opts.payload,
       allowedEnvVars: opts.httpAllowedEnvVars,
-      allowedHttpHookUrls: opts.allowedHttpHookUrls,
+      ...opts.allowedHttpHookUrls !== undefined ? { allowedHttpHookUrls: opts.allowedHttpHookUrls } : {},
       defaultTimeoutMs: opts.defaultTimeoutMs,
       signal: opts.signal,
       expectedEventName: opts.expectedEventName,

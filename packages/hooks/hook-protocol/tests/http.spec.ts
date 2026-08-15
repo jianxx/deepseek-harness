@@ -23,8 +23,11 @@ function mockServer(
     let body = ''
     req.on('data', (chunk) => { body += chunk })
     req.on('end', () => {
-      requests.push({ method: req.method, url: req.url, headers: req.headers as Record<string, unknown>, body })
-      const { status, body: resp } = handler({ url: req.url, headers: req.headers as Record<string, unknown>, body })
+      const entry: { method?: string; url?: string; headers: Record<string, unknown>; body: string } = { headers: req.headers as Record<string, unknown>, body }
+      if (req.method !== undefined) entry.method = req.method
+      if (req.url !== undefined) entry.url = req.url
+      requests.push(entry)
+      const { status, body: resp } = handler(entry)
       res.statusCode = status
       res.setHeader('Content-Type', 'application/json')
       res.end(resp)
@@ -193,7 +196,7 @@ describe('runHttpHook', () => {
       payload: {}, allowedEnvVars: new Set(), defaultTimeoutMs: 5000, signal: controller.signal, now: () => 0,
       // A fetch that rejects only when its signal aborts — so the outer abort
       // (which calls controller.abort()) rejects the in-flight request.
-      fetchImpl: ((_url, init: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+      fetchImpl: ((_url: string, init: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
         init.signal.addEventListener('abort', () => reject(new Error('aborted')))
       })) as unknown as typeof fetch,
     })
@@ -209,7 +212,7 @@ describe('runHttpHook', () => {
       payload: {}, allowedEnvVars: new Set(), defaultTimeoutMs: 60, signal, now: () => 0,
       // A fetch that never settles on its own; the hook's own 60ms timer aborts
       // the request controller, whose signal the fake fetch rejects on.
-      fetchImpl: ((_url, init: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+      fetchImpl: ((_url: string, init: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
         init.signal.addEventListener('abort', () => reject(new Error('timedout')))
       })) as unknown as typeof fetch,
     })
