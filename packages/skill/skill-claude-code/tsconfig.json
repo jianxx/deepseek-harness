@@ -1,0 +1,17 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../../vendor/cordis" },
+    { "path": "../../../vendor/schemastery" },
+    { "path": "../../fs/fs" },
+    { "path": "../skill" },
+    { "path": "../../core/tools" },
+    { "path": "../../util/home-paths" },
+    { "path": "../../runtime-diagnostics/invariants" }
+  ]
+}

@@ -7,6 +7,7 @@ This family owns persistent workspaces: user directories with titles and ordered
 | Package | Role | ctx key |
 |---|---|---|
 | [`workspace/`](workspace/README.md) | Registers workspaces and accounts for their sessions | `ctx.workspaceRegistry` |
+| [`tool-git-worktree/`](tool-git-worktree/README.md) | `EnterWorktree` / `ExitWorktree` git-worktree isolation over the shell seam | tools (no ctx key) |
 
 The [workspace package reference](workspace/README.md) owns lifecycle, persistence, and deletion semantics.
 

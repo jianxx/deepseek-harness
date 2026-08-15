@@ -18,11 +18,13 @@ import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
+import type { OAuthConfig } from './auth.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 
 export type { McpResult } from './tools.ts'
 export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
+export type { OAuthConfig } from './auth.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'mcp-client'
@@ -86,6 +88,8 @@ export interface StreamableHttpConfig {
   url: string
   /** Additional headers attached to MCP requests. */
   headers: Record<string, string>
+  /** Optional OAuth flow; wires a credentials-backed client provider. */
+  oauth?: OAuthConfig
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -94,14 +98,44 @@ export interface StreamableHttpConfig {
   reconnect?: ReconnectConfig
 }
 
-/** Configuration for one stdio or Streamable HTTP MCP server. */
-export type Config = StdioConfig | StreamableHttpConfig
+/** Config for connecting to an MCP server over legacy HTTP + SSE. */
+export interface SseConfig {
+  /** Selects the SSE transport. */
+  transport: 'sse'
+  /**
+   * Stable local namespace for this server's model-facing tool names
+   * (`mcp__<serverName>__<rawName>`). Must match `[A-Za-z0-9_-]{1,32}` and be
+   * unique across live mcp-client instances.
+   */
+  serverName: string
+  /** MCP SSE endpoint URL. */
+  url: string
+  /** Additional headers attached to MCP requests. */
+  headers: Record<string, string>
+  /** Optional OAuth flow; wires a credentials-backed client provider. */
+  oauth?: OAuthConfig
+  /** Per-tool-call timeout in milliseconds. */
+  toolCallTimeoutMs: number
+  /** Fail plugin activation when the initial connection or tool synchronization fails. */
+  failOnStartupError: boolean
+  /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
+  reconnect?: ReconnectConfig
+}
+
+/** Configuration for one stdio, Streamable HTTP, or SSE MCP server. */
+export type Config = StdioConfig | StreamableHttpConfig | SseConfig
 
 const Reconnect: z<ReconnectConfig> = z.object({
   enabled: z.boolean().default(RECONNECT_DEFAULTS.enabled),
   initialDelayMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(RECONNECT_DEFAULTS.initialDelayMs),
   maxDelayMs: z.number().min(1).max(MAX_TIMER_DELAY_MS).default(RECONNECT_DEFAULTS.maxDelayMs),
   maxAttempts: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(RECONNECT_DEFAULTS.maxAttempts),
+})
+
+const OAuth: z<OAuthConfig> = z.object({
+  redirectUrl: z.string().required(false),
+  clientName: z.string().required(false),
+  credentialPrefix: z.string().required(false),
 })
 
 export const Config = z.union([
@@ -121,6 +155,17 @@ export const Config = z.union([
     serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
     url: z.string().required(),
     headers: z.dict(String).default({}),
+    oauth: OAuth.required(false),
+    toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
+    failOnStartupError: z.boolean().default(false),
+    reconnect: Reconnect,
+  }),
+  z.object({
+    transport: z.const('sse'),
+    serverName: z.string().required().pattern(SERVER_NAME_PATTERN),
+    url: z.string().required(),
+    headers: z.dict(String).default({}),
+    oauth: OAuth.required(false),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     reconnect: Reconnect,

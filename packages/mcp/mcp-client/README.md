@@ -27,6 +27,15 @@ One plugin instance per MCP server in `cordis.yml`:
     url: http://localhost:3000/mcp
     headers:
       Authorization: !!js '`Bearer ${process.env.MCP_TOKEN}`'
+
+- id: mcp-feed
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: feed
+    transport: sse
+    url: http://localhost:3001/sse
+    oauth:
+      redirectUrl: http://localhost:8787/callback
 ```
 
 The model sees `mcp__github__create_issue`, `mcp__web__search`, … — the same server-qualified shape Claude Code and Codex use. HMR hot-swaps: editing the entry triggers disconnect + reconnect without process restart; an unchanged `serverName` reproduces identical tool names.
@@ -35,7 +44,7 @@ The model sees `mcp__github__create_issue`, `mcp__web__search`, … — the same
 
 | Field | Transport | Required | Description |
 |---|---|---|---|
-| `transport` | both | yes | `"stdio"` or `"streamable-http"` |
+| `transport` | both | yes | `"stdio"`, `"streamable-http"`, or `"sse"` |
 | `serverName` | both | yes | Namespace for this server's model-facing tool names; `[A-Za-z0-9_-]{1,32}`, unique across live instances |
 | `command` | stdio | yes | Executable to spawn |
 | `args` | stdio | no | Arguments passed to the command |
@@ -43,6 +52,7 @@ The model sees `mcp__github__create_issue`, `mcp__web__search`, … — the same
 | `cwd` | stdio | no | Working directory for the child process |
 | `url` | http | yes | MCP server URL |
 | `headers` | http | no | Extra headers (e.g. auth tokens) |
+| `oauth` | http | no | OAuth flow options (see below) |
 | `toolCallTimeoutMs` | both | no | Timeout per `callTool` invocation (default 60000) |
 | `failOnStartupError` | both | no | Reject plugin activation when initial connection or tool synchronization fails (default `false`) |
 | `reconnect.enabled` | both | no | Reconnect automatically after a lost connection (default `true`) |
@@ -70,11 +80,23 @@ Every MCP tool has two names: the raw MCP name (sent on the wire in `tools/call`
 - Reconnection is budgeted per outage: after `reconnect.maxAttempts` consecutive failures the server's tools are unregistered and reconnection stops until an HMR reload or Host restart. A connection that survives past `maxDelayMs` resets the budget, so an occasionally-crashing server recovers indefinitely while a crash-looping one — even with briefly successful connects — still exhausts the cap instead of restarting forever.
 - Reconnect states are user-visible in logs: reconnecting (warn, with attempt count and delay), recovered (info), final failure and disabled-loss (error). Disposal cancels any pending reconnect. With `reconnect.enabled: false`, a lost connection keeps tools registered but failing until a reload — the manual-recovery behavior.
 
+## Capabilities
+
+Beyond tools, the bridge exposes a server's other MCP capabilities when the server declares them:
+
+- **Resources** — exposed as two server-qualified model tools, `mcp__<serverName>__list_mcp_resources` and `mcp__<serverName>__read_mcp_resource`, which call `resources/list` and `resources/read`. The `ctx.fs` seam (a real-filesystem abstraction over `FsTarget`/`readBytes`) cannot represent virtual MCP resources, so these bridge tools are the fallback the capability seam prescribes. Resource-list-change notifications re-register the bridge.
+- **Prompts** — each MCP prompt is registered as a skill on `ctx.skills` when the prompt capability is declared. Skill names map the `mcp__<server>__<prompt>` shape onto the registry's lowercase-kebab grammar (`mcp-<server>-<prompt>`). Argumentless prompts are resolved via `prompts/get` and their rendered text becomes the skill body; prompts that require arguments are documented with their argument contract instead. MCP-sourced skills are inert prose — never executable shell. Prompt-list-change notifications re-register the skills. Prompt bridging requires the `ctx.skills` service; without it the bridge is a no-op.
+- **OAuth** — network transports (`streamable-http`, `sse`) accept an `oauth` block. Tokens, registered-client information, the PKCE code verifier, and discovery state are persisted through the `ctx.credentials` reference seam (stored under derived credential references, never inline). The MCP SDK drives RFC 9728 → RFC 8414 metadata discovery, dynamic client registration, scheme-code PKCE, and token refresh through the provider; a mid-session `401` is retried once after dropping the stale token state. OAuth requires the `ctx.credentials` service.
+
+The supervisor keeps each capability's registrations live across an outage (last-good wins) and removes them on give-up or disposal, all through one serialized swap chain.
+
 ## Services consumed
 
 | Service | Usage |
 |---|---|
-| `ctx.tools` | Register/unregister MCP tools |
+| `ctx.tools` | Register/unregister MCP tools and the resource bridge |
+| `ctx.skills` | Optional: register MCP prompt skills |
+| `ctx.credentials` | Optional: persist OAuth tokens and related state |
 
 ## Model Experience
 
@@ -108,8 +130,9 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **Tools are the only bridged MCP capability** — Resources and Prompts have no harness consumer and are deferred.
+- **Dynamic OAuth client registration is delegated to the MCP SDK** — the SDK owns RFC 9728/8414 metadata discovery, PKCE, dynamic client registration, and token refresh; this package supplies the credentials-backed persistence half of the `OAuthClientProvider` seam and the single 401 retry. An interactive `redirectToAuthorization` logs the URL for a headless host rather than driving a browser; completing the flow still requires an operator.
 - **Startup timeout is inherited from the MCP SDK** — DSH does not yet expose a connection/discovery timeout. Each initialize or paginated `tools/list` request uses the SDK's 60-second default, so an unresponsive server or cursor chain can delay both activation and teardown while the initial synchronization settles.
 - **Reconnect triggers on transport close** — a crashed stdio child fires it; Streamable HTTP failures surface per request and through the SDK transport's own SSE-stream recovery, so an unreachable HTTP server is retried per call rather than respawned by the supervisor.
 - **Native non-text rendering is lossy** — image, audio, and resource payloads become placeholders in model context even though the execution-local canonical value preserves their JSON blocks. Richer Native multimedia projection is deferred.
 - **Unsupported MCP output schemas are not enforced** — `structuredContent` falls back to `JsonValue` when the advertised schema uses vocabulary outside the harness subset.
+- **Resource bridging uses the two-tool fallback, not a filesystem provider** — the `ctx.fs` seam cannot represent virtual MCP resources; the ListMcpResources/ReadMcpResource model tools are the current surface.
