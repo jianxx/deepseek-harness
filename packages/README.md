@@ -18,6 +18,7 @@ Groups hold `packages/<group>/<pkg>/`; names stay `@deepseek-ai/dsh-<pkg>`. **Gr
 | [`feedback/`](feedback/README.md) | Human feedback | Product — stable API |
 | [`identity/`](identity/README.md) | Shared anonymous identity | Product — stable API |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable API |
+| [`memory/`](memory/README.md) | File-based persistent memory: memdir format, `memory` system-prompt section, dynamic recall, and background consolidation | Product — stable API |
 | [`e2b/`](e2b/README.md) | E2B providers | POC |
 | [`subprocess/`](subprocess/README.md) | Subprocess capability family: Service Definition + local process-tree provider | Product — stable API |
 | [`shell/`](shell/README.md) | Bash capability family: executor seam, local impl, model-facing tool | Product — stable API |
@@ -29,6 +30,7 @@ Groups hold `packages/<group>/<pkg>/`; names stay `@deepseek-ai/dsh-<pkg>`. **Gr
 | [`skill/`](skill/README.md) | Skill capability family: the provider registry, local provider, and model-facing catalog/loader | Product — stable API |
 | [`compaction/`](compaction/README.md) | Compaction capability family: Service Definition + basic provider + command Consumer | Product — stable API |
 | [`context/`](context/README.md) | Model-visible request context, including workspace instructions and time context | Product — stable API |
+| [`compat/`](compat/README.md) | Claude Code CLI compatibility on harness seams | Compat — mirrors external conventions |
 | [`subagent/`](subagent/README.md) | Subagent capability family: the provider-registry contract and the model-facing delegation tool | Product — stable API |
 | [`jobs/`](jobs/README.md) | Generic background-job runtime and model-facing `job_*` control tools | Product — stable API |
 | [`workflow/`](workflow/README.md) | Workflow seam, worker-thread engine, and model-facing `workflow`/`ralph` tools | Product — stable API |

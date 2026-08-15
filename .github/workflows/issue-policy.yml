@@ -24,4 +24,5 @@ jobs:
       - name: Validate pull request
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          ISSUE_REPO: ${{ github.repository }}
         run: node .github/issue-management/policy.mjs pr

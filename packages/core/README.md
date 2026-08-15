@@ -10,6 +10,7 @@ The session log, system-prompt assembly, tool registry, agent vocabulary, deploy
 | [`session/`](session/README.md) | Event-sourced session log and in-memory store | `ctx.sessions` |
 | [`system-prompt/`](system-prompt/README.md) | Prompt and tool-schema assembly registry | `ctx.systemPrompt` |
 | [`tools/`](tools/README.md) | Scoped tool registry and execution pipeline | `ctx.tools` |
+| [`tool-search/`](tool-search/README.md) | Deferred tool registry + the ToolSearch load tool | `ctx.toolSearch` |
 | [`agent/`](agent/README.md) | Agent interface, registry, and event vocabulary | `ctx.agents` |
 | [`agent-default-model/`](agent-default-model/README.md) | Default model selection shared by Agent entry points | `ctx.agentDefaultModel` |
 | [`agent-loop/`](agent-loop/README.md) | Default concrete agent driver | `ctx.agentLoop` |

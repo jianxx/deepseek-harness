@@ -48,12 +48,30 @@ declare module '@deepseek-ai/dsh-session/types' {
 export type HookDialect = 'claude-code' | 'codex'
 
 /**
- * One configured command hook (the `{ type: 'command', command, timeout? }`
- * shape shared by both dialects). Non-command hook types (CC's `prompt`/`agent`/
- * `http`) are parsed-and-skipped by a bridge, so only this shape reaches the
- * runner.
+ * The discriminant used to tell executor kinds apart at a matcher group. The
+ * `command` kind is the shared shape both dialects run; a hook with no `type`
+ * is treated as a command (the CC/Codex default). `prompt` / `http` / `agent`
+ * are CC additions the CC bridge runs, but they are declared here so the
+ * vocabulary is dialect-neutral and the codec/merge have no per-kind
+ * understanding.
+ */
+export type HookCommandType = 'command' | 'prompt' | 'http' | 'agent'
+
+/**
+ * One configured hook of any bound executor kind, discriminated by `type`
+ * (absent = `command`). `timeoutSec` (wire unit: seconds) is shared across
+ * kinds.
+ */
+export type HookCommand = CommandHook | PromptHook | HttpHook | AgentHook
+
+/**
+ * One configured command hook — the `{ type?: 'command', command, timeout? }`
+ * shape shared by both dialects. A hook with no `type` is treated as a command
+ * (the CC default).
  */
 export interface CommandHook {
+  /** The type discriminator (absent means `command`). */
+  type?: 'command'
   /** The shell command line to run. */
   command: string
   /** Per-hook timeout in SECONDS (the wire unit); the runner converts to ms. */
@@ -61,13 +79,65 @@ export interface CommandHook {
 }
 
 /**
+ * The CC `prompt` hook kind: a small-model evaluation using `$ARGUMENTS` as the
+ * hook-input placeholder. The bridge owns which model/call service it runs
+ * through; here the type only carries the wire-shape fields it must parse.
+ */
+export interface PromptHook {
+  /** The literal type discriminator. */
+  type: 'prompt'
+  /** The prompt to evaluate; `$ARGUMENTS` is replaced with the hook input JSON. */
+  prompt: string
+  /** Optional model override name; the bridge resolves the default when absent. */
+  model?: string
+  /** Per-hook timeout in SECONDS (the wire unit); the runner converts to ms. */
+  timeoutSec?: number
+}
+
+/**
+ * The CC `http` hook kind: POST the hook input JSON to a URL. Header values may
+ * interpolate `$VAR`/`${VAR}` env references, but only names listed in
+ * {@link HttpHook.allowedEnvVars} resolve; the rest become empty strings (the
+ * exfiltration guard). {@link HttpHook.allowedUrlPatterns} restricts which
+ * destinations may be reached.
+ */
+export interface HttpHook {
+  /** The literal type discriminator. */
+  type: 'http'
+  /** The URL to POST the hook input JSON to. */
+  url: string
+  /** Additional request headers; values may interpolate allowlisted env vars. */
+  headers?: Record<string, string>
+  /** Env-var names allowed to interpolate into header values. */
+  allowedEnvVars?: string[]
+  /** Per-hook timeout in SECONDS (the wire unit); the runner converts to ms. */
+  timeoutSec?: number
+}
+
+/**
+ * The CC `agent` hook kind: a verification subagent driven from `$ARGUMENTS`.
+ * The bridge owns the subagent invocation; here the type only carries the
+ * wire-shape field it must parse.
+ */
+export interface AgentHook {
+  /** The literal type discriminator. */
+  type: 'agent'
+  /** The prompt describing what to verify; `$ARGUMENTS` is the hook-input placeholder. */
+  prompt: string
+  /** Optional model override name; the bridge resolves the default when absent. */
+  model?: string
+  /** Per-hook timeout in SECONDS (the wire unit); the runner converts to ms. */
+  timeoutSec?: number
+}
+
+/**
  * One matcher group: a `matcher` pattern (absent / `''` / `'*'` = match-all)
- * plus the command hooks that run when it matches. Both dialects share this
- * shape (CC's `hooks.json` and Codex's `hooks.json`).
+ * plus the hooks that run when it matches. Both dialects share this shape (CC's
+ * `hooks.json` and Codex's `hooks.json`).
  */
 export interface MatcherGroup {
   matcher?: string
-  hooks: CommandHook[]
+  hooks: HookCommand[]
 }
 
 /**
