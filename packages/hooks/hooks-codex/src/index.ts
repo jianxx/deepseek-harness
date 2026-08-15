@@ -31,10 +31,9 @@ import {
   mergeHookOutputs,
   runHook,
   type HookOutput,
-  type MatcherGroup,
   type MergedHookOutcome,
 } from '@deepseek-ai/dsh-hook-protocol'
-import { parseCodexConfig, type CodexHookConfig } from './config.ts'
+import { parseCodexConfig, type CodexHookConfig, type CodexMatcherGroup } from './config.ts'
 /* jscpd:ignore-end */
 
 export const name = 'hooks-codex'
@@ -121,7 +120,7 @@ export function apply(ctx: Context, config: Config): void {
       plainStdoutAsContext?: boolean
     },
   ): Promise<MergedHookOutcome> {
-    const groups: MatcherGroup[] = parsed[point] ?? []
+    const groups: CodexMatcherGroup[] = parsed[point] ?? []
     const outputs: HookOutput[] = []
     // Run hooks in the agent's session workspace so relative paths address the
     // user's project rather than the server launch directory.

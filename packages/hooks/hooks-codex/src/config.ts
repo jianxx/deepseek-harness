@@ -5,13 +5,20 @@
  * @module @deepseek-ai/dsh-hooks-codex/config
  */
 
-import { matcherDiagnostic, type MatcherGroup } from '@deepseek-ai/dsh-hook-protocol'
+import { matcherDiagnostic, type CommandHook, type MatcherGroup } from '@deepseek-ai/dsh-hook-protocol'
 
 /** The five Codex hook points this bridge supports. */
 export const CODEX_EVENTS = ['PreToolUse', 'PostToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop'] as const
 
+/**
+ * A Codex matcher group: the parser admits synchronous command hooks only, so
+ * the hook union narrows to {@link CommandHook} (keeps the bridge's
+ * `runHook(..., CommandHook, …)` call typed without casts).
+ */
+export type CodexMatcherGroup = Omit<MatcherGroup, 'hooks'> & { hooks: CommandHook[] }
+
 /** A parsed Codex config: event name → its matcher groups (command hooks only). */
-export type CodexHookConfig = Record<string, MatcherGroup[]>
+export type CodexHookConfig = Record<string, CodexMatcherGroup[]>
 
 /** A skipped non-command (or async) hook, surfaced so the bridge can warn. */
 export interface SkippedHook {
@@ -53,11 +60,11 @@ export function parseCodexConfig(raw: unknown): ParsedCodexConfig {
     // shapes and skip reasons differ from Claude Code's.
     /* jscpd:ignore-start */
     if (!Array.isArray(rawGroups)) continue
-    const groups: MatcherGroup[] = []
+    const groups: CodexMatcherGroup[] = []
     for (const rawGroup of rawGroups) {
       const group = asObject(rawGroup)
       if (!group || !Array.isArray(group.hooks)) continue
-      const commands: MatcherGroup['hooks'] = []
+      const commands: CommandHook[] = []
       for (const rawHook of group.hooks) {
         const hook = asObject(rawHook)
         if (!hook) continue
